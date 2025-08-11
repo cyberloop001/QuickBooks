@@ -106,7 +106,9 @@ export class PhoneSystemService {
         clientId,
       });
       throw new Error(
-        `Failed to get phone usage data: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to get phone usage data: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
@@ -145,7 +147,9 @@ export class PhoneSystemService {
         error: error instanceof Error ? error.message : "Unknown error",
       });
       throw new Error(
-        `Failed to get real-time usage data: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to get real-time usage data: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
@@ -172,7 +176,9 @@ export class PhoneSystemService {
         error: error instanceof Error ? error.message : "Unknown error",
       });
       throw new Error(
-        `Failed to get client list: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to get client list: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
@@ -200,7 +206,9 @@ export class PhoneSystemService {
         clientId,
       });
       throw new Error(
-        `Failed to get client details: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to get client details: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
