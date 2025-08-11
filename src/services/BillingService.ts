@@ -131,7 +131,7 @@ export class BillingService {
       await this.updateBillingJobStatus(
         billingJob.id,
         BillingJobStatus.FAILED,
-        error.message
+        error instanceof Error ? error.message : "Unknown error"
       );
 
       throw error;
@@ -164,7 +164,11 @@ export class BillingService {
         endDate,
         clientId,
       });
-      throw new Error(`Failed to fetch phone usage data: ${error.message}`);
+      throw new Error(
+        `Failed to fetch phone usage data: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
@@ -285,7 +289,7 @@ export class BillingService {
           totalMinutes: usage.totalMinutes,
           totalAmount: usage.totalAmount,
           invoiceCreated: false,
-          error: error.message,
+          error: error instanceof Error ? error.message : "Unknown error",
         });
       }
     }
@@ -457,7 +461,7 @@ export class BillingService {
     billingJob.jobId = jobId;
     billingJob.type = type;
     billingJob.status = BillingJobStatus.PENDING;
-    billingJob.clientId = clientId;
+    billingJob.clientId = clientId || "";
     billingJob.billingPeriodStart = startDate;
     billingJob.billingPeriodEnd = endDate;
     billingJob.startedAt = new Date();

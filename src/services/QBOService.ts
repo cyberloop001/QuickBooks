@@ -128,8 +128,13 @@ export class QBOService {
       return token;
     } catch (error) {
       logger.error("Failed to exchange code for token", { error });
-      logQBOAction("token_exchange", { success: false, error: error.message });
-      throw new Error(`Failed to exchange code for token: ${error.message}`);
+      logQBOAction("token_exchange", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw new Error(
+        `Failed to exchange code for token: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -166,8 +171,13 @@ export class QBOService {
       logQBOAction("token_refresh", { success: true });
     } catch (error) {
       logger.error("Failed to refresh token", { error });
-      logQBOAction("token_refresh", { success: false, error: error.message });
-      throw new Error(`Failed to refresh token: ${error.message}`);
+      logQBOAction("token_refresh", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw new Error(
+        `Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -237,13 +247,15 @@ export class QBOService {
       });
       logQBOAction("find_existing_invoice", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         customerId,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         jobId,
       });
-      throw new Error(`Failed to find existing invoice: ${error.message}`);
+      throw new Error(
+        `Failed to find existing invoice: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -271,10 +283,12 @@ export class QBOService {
       logger.error("Failed to create invoice", { error, invoiceData });
       logQBOAction("create_invoice", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         customerId: invoiceData.CustomerRef?.value,
       });
-      throw new Error(`Failed to create invoice: ${error.message}`);
+      throw new Error(
+        `Failed to create invoice: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -297,10 +311,12 @@ export class QBOService {
       logger.error("Failed to get customer", { error, customerId });
       logQBOAction("get_customer", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         customerId,
       });
-      throw new Error(`Failed to get customer: ${error.message}`);
+      throw new Error(
+        `Failed to get customer: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -331,10 +347,12 @@ export class QBOService {
       logger.error("Failed to search customers", { error, query });
       logQBOAction("search_customers", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         query,
       });
-      throw new Error(`Failed to search customers: ${error.message}`);
+      throw new Error(
+        `Failed to search customers: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -356,9 +374,11 @@ export class QBOService {
       logger.error("Failed to get company info", { error });
       logQBOAction("get_company_info", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
       });
-      throw new Error(`Failed to get company info: ${error.message}`);
+      throw new Error(
+        `Failed to get company info: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 

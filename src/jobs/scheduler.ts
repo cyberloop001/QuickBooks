@@ -136,7 +136,7 @@ export class JobScheduler {
           totalClients: 0,
           totalInvoices: 0,
           totalAmount: 0,
-          errors: [error.message],
+          errors: [error instanceof Error ? error.message : String(error)],
           details: [],
         },
         false
@@ -353,8 +353,8 @@ export class JobScheduler {
    * Get next run time for a cron expression
    */
   private getNextRunTime(cronExpression: string, timezone: string): string {
-    const nextRun = cron.getNextDate(cronExpression, timezone);
-    return nextRun ? nextRun.toISOString() : "Unknown";
+    // node-cron doesn't have getNextDate method
+    return "Next run time calculation not available";
   }
 
   /**
@@ -375,8 +375,8 @@ export class JobScheduler {
   getJobStatus(): any {
     return {
       monthlyJob: {
-        scheduled: this.monthlyJob?.scheduled || false,
-        running: this.monthlyJob?.running || false,
+        scheduled: this.monthlyJob ? true : false,
+        running: false, // node-cron doesn't expose running state
       },
       timezone: config.billing.timezone,
       nextRun: this.monthlyJob

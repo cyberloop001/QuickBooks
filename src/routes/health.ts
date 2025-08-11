@@ -23,7 +23,7 @@ router.get("/", async (req: Request, res: Response) => {
     res.status(503).json({
       status: "unhealthy",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -73,7 +73,7 @@ router.get("/detailed", async (req: Request, res: Response) => {
     res.status(503).json({
       status: "unhealthy",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -103,7 +103,7 @@ router.get("/ready", async (req: Request, res: Response) => {
     res.status(503).json({
       status: "not ready",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -133,7 +133,7 @@ router.get("/live", async (req: Request, res: Response) => {
     res.status(503).json({
       status: "not alive",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });

@@ -29,12 +29,12 @@ export class PhoneSystemService {
     });
 
     // Add request interceptor for authentication
-    this.api.interceptors.request.use((config) => {
+    this.api.interceptors.request.use((axiosConfig) => {
       // Add API key to headers
-      config.headers["X-API-Key"] = config.phoneSystem.apiKey;
-      config.headers["X-API-Secret"] = config.phoneSystem.apiSecret;
+      axiosConfig.headers["X-API-Key"] = config.phoneSystem.apiKey;
+      axiosConfig.headers["X-API-Secret"] = config.phoneSystem.apiSecret;
 
-      return config;
+      return axiosConfig;
     });
 
     // Add response interceptor for error handling
@@ -100,12 +100,14 @@ export class PhoneSystemService {
       });
       logPhoneSystemAction("get_usage_data", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         clientId,
       });
-      throw new Error(`Failed to get phone usage data: ${error.message}`);
+      throw new Error(
+        `Failed to get phone usage data: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -140,9 +142,11 @@ export class PhoneSystemService {
       logger.error("Failed to get real-time usage data", { error });
       logPhoneSystemAction("get_realtime_usage", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
       });
-      throw new Error(`Failed to get real-time usage data: ${error.message}`);
+      throw new Error(
+        `Failed to get real-time usage data: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -165,9 +169,11 @@ export class PhoneSystemService {
       logger.error("Failed to get client list", { error });
       logPhoneSystemAction("get_clients", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
       });
-      throw new Error(`Failed to get client list: ${error.message}`);
+      throw new Error(
+        `Failed to get client list: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
@@ -190,10 +196,12 @@ export class PhoneSystemService {
       logger.error("Failed to get client details", { error, clientId });
       logPhoneSystemAction("get_client_details", {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : "Unknown error",
         clientId,
       });
-      throw new Error(`Failed to get client details: ${error.message}`);
+      throw new Error(
+        `Failed to get client details: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 

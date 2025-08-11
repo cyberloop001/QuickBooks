@@ -306,7 +306,7 @@ Examples:
    * Generate invoice payloads for QBO
    */
   private generateInvoicePayloads(aggregatedUsage: Map<string, any>): any[] {
-    const payloads = [];
+    const payloads: any[] = [];
 
     for (const [clientId, usage] of aggregatedUsage) {
       const payload = {
