@@ -122,7 +122,8 @@ router.post(
       logger.error("Manual billing job failed", { error });
       res.status(500).json({
         success: false,
-        error: error.message || "Failed to run billing job",
+        error:
+          error instanceof Error ? error.message : "Failed to run billing job",
       });
     }
   }
@@ -173,7 +174,10 @@ router.post(
       logger.error("Monthly billing job failed", { error });
       res.status(500).json({
         success: false,
-        error: error.message || "Failed to run monthly billing job",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to run monthly billing job",
       });
     }
   }
@@ -229,7 +233,10 @@ router.post(
       logger.error("Previous month billing job failed", { error });
       res.status(500).json({
         success: false,
-        error: error.message || "Failed to run previous month billing job",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to run previous month billing job",
       });
     }
   }
