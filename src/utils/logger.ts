@@ -99,6 +99,22 @@ export const logPhoneSystemAction = (action: string, details: any) => {
   });
 };
 
+export const logQBOServiceAction = (action: string, details: any) => {
+  logger.info("QBO Service Action", {
+    action,
+    ...details,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+export const logSystemAction = (action: string, details: any) => {
+  logger.info("System Action", {
+    action,
+    ...details,
+    timestamp: new Date().toISOString(),
+  });
+};
+
 export const logError = (error: Error, context: any = {}) => {
   logger.error("Application error", {
     error: {

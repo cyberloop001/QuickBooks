@@ -1,80 +1,205 @@
 import axios, { AxiosInstance } from "axios";
-import { getRepository } from "typeorm";
-import { Client } from "../entities/Client";
-import { logger, logQBOAction } from "../utils/logger";
+import OAuthClient from "intuit-oauth";
+import { logger, logQBOServiceAction } from "../utils/logger";
 import { config } from "../config";
 
 export interface QBOToken {
   access_token: string;
   refresh_token: string;
-  expires_in: number;
   token_type: string;
+  expires_in: number;
+  x_refresh_token_expires_in: number;
+  realmId: string;
   expires_at: Date;
+}
+
+export interface QBOCompanyInfo {
+  Id: string;
+  CompanyName: string;
+  LegalName: string;
+  CompanyAddr: any;
+  CustomerCommunicationAddr: any;
+  WebAddr: any;
+  Email: any;
+  NameValue: any[];
+  SupportedLanguages: string;
+  Country: string;
+  FiscalYearStartMonth: string;
+  LegalAddr: any;
+  MetaData: any;
+  ReportPrefs: any;
+  Preferences: any;
 }
 
 export interface QBOInvoice {
   Id: string;
   DocNumber: string;
-  CustomerRef: { value: string };
-  TotalAmt: number;
-  Balance: number;
-  PrivateNote: string;
   TxnDate: string;
+  CustomerRef: { value: string };
   Line: any[];
+  TotalAmt: number;
+  PrivateNote: string;
+  MetaData: any;
 }
 
 export class QBOService {
-  private api: AxiosInstance;
-  private baseUrl: string;
-  private token: QBOToken | null = null;
+  private oauthClient: OAuthClient | null = null;
+  private tokens: QBOToken | null = null;
+  private api: AxiosInstance | null = null;
 
   constructor() {
-    this.baseUrl =
-      config.qbo.environment === "sandbox"
-        ? "https://sandbox-accounts.platform.intuit.com"
-        : "https://accounts.platform.intuit.com";
+    this.initializeOAuthClient();
+  }
+
+  /**
+   * Initialize OAuth client
+   */
+  private initializeOAuthClient(): void {
+    try {
+      this.oauthClient = new OAuthClient({
+        clientId: config.qbo.clientId,
+        clientSecret: config.qbo.clientSecret,
+        environment: config.qbo.environment as "sandbox" | "production",
+        redirectUri: config.qbo.redirectUri,
+      });
+
+      logger.info("QBO OAuth client initialized", {
+        environment: config.qbo.environment,
+        clientId: config.qbo.clientId ? "configured" : "not configured",
+      });
+    } catch (error) {
+      logger.error("Failed to initialize QBO OAuth client", { error });
+    }
+  }
+
+  /**
+   * Get OAuth authorization URL
+   */
+  getAuthorizationUrl(): string {
+    if (!this.oauthClient) {
+      throw new Error("OAuth client not initialized");
+    }
+
+    const authUri = this.oauthClient.authorizeUri({
+      scope: [OAuthClient.scopes.Accounting],
+      state: "phone-billing-system",
+    });
+
+    logQBOServiceAction("get_authorization_url", { success: true });
+    return authUri;
+  }
+
+  /**
+   * Handle OAuth callback and exchange code for tokens
+   */
+  async handleCallback(callbackUrl: string): Promise<QBOToken> {
+    if (!this.oauthClient) {
+      throw new Error("OAuth client not initialized");
+    }
+
+    try {
+      const authResponse = await this.oauthClient.createToken(callbackUrl);
+      const tokenData = authResponse.getJson();
+
+      this.tokens = {
+        ...tokenData,
+        expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
+      };
+
+      // Initialize API client with new tokens
+      this.initializeAPIClient();
+
+      logQBOServiceAction("handle_callback", { success: true });
+      return this.tokens!;
+    } catch (error) {
+      logger.error("Failed to handle OAuth callback", { error });
+      logQBOServiceAction("handle_callback", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw new Error(
+        `OAuth callback failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Refresh access token
+   */
+  async refreshAccessToken(): Promise<QBOToken> {
+    if (!this.oauthClient) {
+      throw new Error("OAuth client not initialized");
+    }
+
+    try {
+      const authResponse = await this.oauthClient.refresh();
+      const tokenData = authResponse.getJson();
+
+      this.tokens = {
+        ...tokenData,
+        expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
+      };
+
+      // Update API client with new tokens
+      this.initializeAPIClient();
+
+      logQBOServiceAction("refresh_token", { success: true });
+      return this.tokens!;
+    } catch (error) {
+      logger.error("Failed to refresh access token", { error });
+      logQBOServiceAction("refresh_token", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw new Error(
+        `Token refresh failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Initialize API client with current tokens
+   */
+  private initializeAPIClient(): void {
+    if (!this.tokens) {
+      throw new Error("No valid tokens available");
+    }
+
+    const baseURL =
+      this.oauthClient?.environment === "sandbox"
+        ? OAuthClient.environment.sandbox
+        : OAuthClient.environment.production;
 
     this.api = axios.create({
-      baseURL: this.baseUrl,
+      baseURL: baseURL + `v3/company/${this.tokens.realmId}`,
       timeout: 30000,
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        Authorization: `Bearer ${this.tokens.access_token}`,
       },
     });
 
-    // Add request interceptor for authentication
-    this.api.interceptors.request.use(async (config) => {
-      if (this.token && this.isTokenExpired()) {
-        await this.refreshToken();
-      }
-
-      if (this.token) {
-        config.headers.Authorization = `Bearer ${this.token.access_token}`;
-      }
-
-      return config;
-    });
-
-    // Add response interceptor for error handling
+    // Add response interceptor for token refresh
     this.api.interceptors.response.use(
       (response) => response,
       async (error) => {
-        if (error.response?.status === 401 && this.token) {
-          // Token expired, try to refresh
+        if (error.response?.status === 401 && this.tokens?.refresh_token) {
           try {
-            await this.refreshToken();
-            // Retry the original request
-            const originalRequest = error.config;
-            originalRequest.headers.Authorization = `Bearer ${
-              this.token!.access_token
-            }`;
-            return this.api.request(originalRequest);
+            await this.refreshAccessToken();
+            // Retry the original request with new token
+            if (this.api && error.config) {
+              error.config.headers.Authorization = `Bearer ${this.tokens?.access_token}`;
+              return this.api.request(error.config);
+            }
           } catch (refreshError) {
-            logger.error("Failed to refresh QBO token", {
-              error: refreshError,
+            logger.error("Failed to refresh token during API call", {
+              refreshError,
             });
-            throw error;
           }
         }
         throw error;
@@ -83,113 +208,114 @@ export class QBOService {
   }
 
   /**
-   * Get OAuth2 authorization URL
+   * Check if tokens are valid
    */
-  getAuthorizationUrl(): string {
-    const params = new URLSearchParams({
-      client_id: config.qbo.clientId,
-      response_type: "code",
-      scope: config.qbo.scope,
-      redirect_uri: config.qbo.redirectUri,
-      state: this.generateState(),
-    });
+  isAuthenticated(): boolean {
+    if (!this.tokens || !this.api) return false;
 
-    return `${this.baseUrl}/oauth2/v1/authorize?${params.toString()}`;
+    // Check if token is expired (with 5 minute buffer)
+    const now = new Date();
+    const expiresAt = new Date(
+      this.tokens.expires_at.getTime() - 5 * 60 * 1000
+    );
+
+    return now < expiresAt;
   }
 
   /**
-   * Exchange authorization code for access token
+   * Get company information
    */
-  async exchangeCodeForToken(code: string): Promise<QBOToken> {
+  async getCompanyInfo(): Promise<QBOCompanyInfo> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
     try {
-      const response = await this.api.post(
-        "/oauth2/v1/tokens/bearer",
-        {
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: config.qbo.redirectUri,
-        },
-        {
-          auth: {
-            username: config.qbo.clientId,
-            password: config.qbo.clientSecret,
-          },
-        }
+      const response = await this.api.get(
+        `/companyinfo/${this.tokens.realmId}`
       );
+      const companyInfo = response.data;
 
-      const token: QBOToken = {
-        ...response.data,
-        expires_at: new Date(Date.now() + response.data.expires_in * 1000),
-      };
-
-      this.token = token;
-      logQBOAction("token_exchange", { success: true });
-
-      return token;
+      logQBOServiceAction("get_company_info", { success: true });
+      return companyInfo;
     } catch (error) {
-      logger.error("Failed to exchange code for token", { error });
-      logQBOAction("token_exchange", {
+      logger.error("Failed to get company info", { error });
+      logQBOServiceAction("get_company_info", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       });
       throw new Error(
-        `Failed to exchange code for token: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to get company info: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
 
   /**
-   * Refresh access token
+   * Search for customers
    */
-  private async refreshToken(): Promise<void> {
-    if (!this.token?.refresh_token) {
-      throw new Error("No refresh token available");
+  async searchCustomers(query: string): Promise<any[]> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
     }
 
     try {
-      const response = await this.api.post(
-        "/oauth2/v1/tokens/bearer",
-        {
-          grant_type: "refresh_token",
-          refresh_token: this.token.refresh_token,
+      const response = await this.api.get(`/query`, {
+        params: {
+          query: `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' OR PrimaryEmailAddr LIKE '%${query}%' MAXRESULTS 20`,
         },
-        {
-          auth: {
-            username: config.qbo.clientId,
-            password: config.qbo.clientSecret,
-          },
-        }
-      );
+      });
 
-      this.token = {
-        ...this.token,
-        access_token: response.data.access_token,
-        expires_in: response.data.expires_in,
-        expires_at: new Date(Date.now() + response.data.expires_in * 1000),
-      };
-
-      logQBOAction("token_refresh", { success: true });
+      const customers = response.data.QueryResponse?.Customer || [];
+      logQBOServiceAction("search_customers", {
+        success: true,
+        query,
+        count: customers.length,
+      });
+      return customers;
     } catch (error) {
-      logger.error("Failed to refresh token", { error });
-      logQBOAction("token_refresh", {
+      logger.error("Failed to search customers", { error, query });
+      logQBOServiceAction("search_customers", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        query,
       });
       throw new Error(
-        `Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to search customers: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
 
   /**
-   * Check if token is expired
+   * Get customer by ID
    */
-  private isTokenExpired(): boolean {
-    if (!this.token) return true;
+  async getCustomer(customerId: string): Promise<any> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
 
-    // Refresh token 5 minutes before expiration
-    const bufferTime = 5 * 60 * 1000;
-    return this.token.expires_at.getTime() - bufferTime < Date.now();
+    try {
+      const response = await this.api.get(`/customer/${customerId}`);
+      const customer = response.data;
+
+      logQBOServiceAction("get_customer", { success: true, customerId });
+      return customer;
+    } catch (error) {
+      logger.error("Failed to get customer", { error, customerId });
+      logQBOServiceAction("get_customer", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        customerId,
+      });
+      throw new Error(
+        `Failed to get customer: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
   }
 
   /**
@@ -201,42 +327,32 @@ export class QBOService {
     endDate: Date,
     jobId: string
   ): Promise<QBOInvoice | null> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
     try {
-      // Search for invoices by customer and date range
-      const query = `SELECT * FROM Invoice WHERE CustomerRef = '${customerId}' AND TxnDate >= '${
-        startDate.toISOString().split("T")[0]
-      }' AND TxnDate <= '${endDate.toISOString().split("T")[0]}'`;
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const endDateStr = endDate.toISOString().split("T")[0];
 
-      const response = await this.api.get(
-        "/v3/company/" + config.qbo.accountId + "/query",
-        {
-          params: { query },
-        }
-      );
-
-      const invoices = response.data.QueryResponse.Invoice || [];
-
-      // Check for invoices with matching job ID in PrivateNote
-      for (const invoice of invoices) {
-        if (invoice.PrivateNote && invoice.PrivateNote.includes(jobId)) {
-          logQBOAction("find_existing_invoice", {
-            success: true,
-            invoiceId: invoice.Id,
-            jobId,
-          });
-          return invoice;
-        }
-      }
-
-      logQBOAction("find_existing_invoice", {
-        success: true,
-        found: false,
-        customerId,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+      const response = await this.api.get(`/query`, {
+        params: {
+          query: `SELECT * FROM Invoice WHERE CustomerRef = '${customerId}' AND TxnDate >= '${startDateStr}' AND TxnDate <= '${endDateStr}' AND PrivateNote LIKE '%${jobId}%' MAXRESULTS 1`,
+        },
       });
 
-      return null;
+      const invoices = response.data.QueryResponse?.Invoice || [];
+      const existingInvoice = invoices[0] || null;
+
+      logQBOServiceAction("find_existing_invoice", {
+        success: true,
+        customerId,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        found: !!existingInvoice,
+      });
+
+      return existingInvoice;
     } catch (error) {
       logger.error("Failed to find existing invoice", {
         error,
@@ -245,16 +361,18 @@ export class QBOService {
         endDate,
         jobId,
       });
-      logQBOAction("find_existing_invoice", {
+      logQBOServiceAction("find_existing_invoice", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
         customerId,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        startDate,
+        endDate,
         jobId,
       });
       throw new Error(
-        `Failed to find existing invoice: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to find existing invoice: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
@@ -263,130 +381,44 @@ export class QBOService {
    * Create invoice in QBO
    */
   async createInvoice(invoiceData: any): Promise<QBOInvoice> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
     try {
-      const response = await this.api.post(
-        `/v3/company/${config.qbo.accountId}/invoice`,
-        invoiceData
-      );
+      const response = await this.api.post(`/invoice`, invoiceData);
+      const invoice = response.data;
 
-      const invoice = response.data.Invoice;
-
-      logQBOAction("create_invoice", {
+      logQBOServiceAction("create_invoice", {
         success: true,
         invoiceId: invoice.Id,
-        customerId: invoice.CustomerRef.value,
-        amount: invoice.TotalAmt,
+        docNumber: invoice.DocNumber,
       });
-
       return invoice;
     } catch (error) {
       logger.error("Failed to create invoice", { error, invoiceData });
-      logQBOAction("create_invoice", {
+      logQBOServiceAction("create_invoice", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
-        customerId: invoiceData.CustomerRef?.value,
+        invoiceData,
       });
       throw new Error(
-        `Failed to create invoice: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to create invoice: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     }
   }
 
   /**
-   * Get customer by ID
-   */
-  async getCustomer(customerId: string): Promise<any> {
-    try {
-      const response = await this.api.get(
-        `/v3/company/${config.qbo.accountId}/customer/${customerId}`
-      );
-
-      logQBOAction("get_customer", {
-        success: true,
-        customerId,
-      });
-
-      return response.data.Customer;
-    } catch (error) {
-      logger.error("Failed to get customer", { error, customerId });
-      logQBOAction("get_customer", {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-        customerId,
-      });
-      throw new Error(
-        `Failed to get customer: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
-  }
-
-  /**
-   * Search for customers
-   */
-  async searchCustomers(query: string): Promise<any[]> {
-    try {
-      const searchQuery = `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' OR PrimaryEmailAddr LIKE '%${query}%'`;
-
-      const response = await this.api.get(
-        "/v3/company/" + config.qbo.accountId + "/query",
-        {
-          params: { query: searchQuery },
-        }
-      );
-
-      const customers = response.data.QueryResponse.Customer || [];
-
-      logQBOAction("search_customers", {
-        success: true,
-        query,
-        count: customers.length,
-      });
-
-      return customers;
-    } catch (error) {
-      logger.error("Failed to search customers", { error, query });
-      logQBOAction("search_customers", {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-        query,
-      });
-      throw new Error(
-        `Failed to search customers: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
-  }
-
-  /**
-   * Get company info
-   */
-  async getCompanyInfo(): Promise<any> {
-    try {
-      const response = await this.api.get(
-        `/v3/company/${config.qbo.accountId}/companyinfo/${config.qbo.accountId}`
-      );
-
-      logQBOAction("get_company_info", {
-        success: true,
-      });
-
-      return response.data.CompanyInfo;
-    } catch (error) {
-      logger.error("Failed to get company info", { error });
-      logQBOAction("get_company_info", {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-      throw new Error(
-        `Failed to get company info: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
-  }
-
-  /**
-   * Test API connection
+   * Test connection to QBO
    */
   async testConnection(): Promise<boolean> {
     try {
+      if (!this.isAuthenticated()) {
+        return false;
+      }
+
       await this.getCompanyInfo();
       return true;
     } catch (error) {
@@ -396,12 +428,17 @@ export class QBOService {
   }
 
   /**
-   * Generate random state for OAuth
+   * Get current tokens
    */
-  private generateState(): string {
-    return (
-      Math.random().toString(36).substring(2, 15) +
-      Math.random().toString(36).substring(2, 15)
-    );
+  getTokens(): QBOToken | null {
+    return this.tokens;
+  }
+
+  /**
+   * Set tokens (for persistence)
+   */
+  setTokens(tokens: QBOToken): void {
+    this.tokens = tokens;
+    this.initializeAPIClient();
   }
 }

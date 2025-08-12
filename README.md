@@ -1,82 +1,164 @@
-# Phone Billing System
+# Phone Billing System MVP
 
-A production-ready MVP for automated phone usage billing with QuickBooks Online integration.
+A production-ready internal web tool that automates phone usage billing and QuickBooks Online (QBO) invoice creation. The system pulls per-client minute usage from a phone system API, calculates charges, and creates QBO invoices with an option to auto-charge.
 
 ## 🚀 Features
 
-- **Automated Billing**: Monthly scheduled billing jobs with timezone-safe processing
-- **QBO Integration**: Full OAuth2 integration with QuickBooks Online API v3
-- **Phone System API**: REST API integration for usage data retrieval
-- **Idempotency**: Prevents duplicate invoices with comprehensive deduplication
-- **Dashboard**: Real-time monitoring and management interface
-- **Kill Switch**: Emergency system shutdown capability
-- **Comprehensive Logging**: Structured logging with file rotation
-- **Rate Limiting**: API protection against abuse
-- **Error Handling**: Robust error handling with retries and backoff
+### Core Functionality
+
+- **Phone System Integration**: REST API integration for usage CDRs (Call Detail Records)
+- **QuickBooks Online Integration**: OAuth2-based QBO API v3 integration
+- **Automated Billing**: Scheduled monthly billing jobs with timezone-safe processing
+- **Flat Rate Billing**: Per-minute rating engine (v1)
+- **Client Mapping**: Stable mapping between Phone System Client ID and QBO Customer ID
+- **Invoice Creation**: Draft invoice creation in QBO with correct Items, tax codes, and memos
+- **Idempotency**: Prevents duplicate invoices on job re-runs
+
+### Dashboard & Management
+
+- **Modern Web Dashboard**: React-based responsive interface
+- **Real-time Monitoring**: Live job status, totals, and error flags
+- **Manual Controls**: Manual job re-run, global kill switch
+- **Client Management**: Add, edit, and manage client mappings
+- **Settings Configuration**: System parameters and integration settings
+
+### Reliability & Security
+
+- **Scheduled Jobs**: Automated monthly billing using node-cron
+- **Error Handling**: Retries with exponential backoff, structured logging
+- **Alerts**: Email and Slack notifications on failures
+- **Security**: Secrets in environment variables, least-privilege scopes
+- **Audit Logging**: Comprehensive logging for operations and debugging
 
 ## 🏗️ Architecture
 
-- **Backend**: Node.js with TypeScript and Express
+### Backend Stack
+
+- **Runtime**: Node.js with TypeScript
+- **Framework**: Express.js with RESTful API design
 - **Database**: PostgreSQL with TypeORM
-- **Scheduling**: Node-cron for automated jobs
+- **Scheduling**: node-cron for automated jobs
+- **HTTP Client**: Axios with retry logic
 - **Logging**: Winston with daily rotation
-- **Security**: Helmet, CORS, rate limiting
-- **API**: RESTful API with validation
+- **Authentication**: OAuth2 for QBO, API keys for phone system
 
-## 📋 Prerequisites
+### Frontend Stack
 
-- Node.js 18+
+- **Framework**: React 18 with TypeScript
+- **Build Tool**: Vite for fast development
+- **Styling**: Tailwind CSS with custom components
+- **State Management**: Zustand with persistence
+- **Routing**: React Router for navigation
+- **Charts**: Recharts for data visualization
+- **Icons**: Lucide React icon library
+
+### Infrastructure
+
+- **Containerization**: Docker and Docker Compose
+- **Database**: PostgreSQL with connection pooling
+- **Caching**: Redis for session and job state
+- **Reverse Proxy**: Nginx for production deployment
+- **Environment**: Development and production configurations
+
+## 📁 Project Structure
+
+```
+QuickBooks/
+├── src/                    # Backend source code
+│   ├── config/            # Configuration management
+│   ├── entities/          # TypeORM database entities
+│   ├── services/          # Business logic services
+│   ├── routes/            # API route handlers
+│   ├── middleware/        # Express middleware
+│   ├── jobs/              # Scheduled job management
+│   └── utils/             # Utility functions
+├── frontend/              # React frontend application
+│   ├── src/               # Frontend source code
+│   │   ├── components/    # Reusable UI components
+│   │   ├── pages/         # Page components
+│   │   ├── stores/        # State management
+│   │   └── App.tsx        # Main application
+│   ├── public/            # Static assets
+│   └── dist/              # Production build output
+├── docker-compose.yml     # Local development environment
+├── Dockerfile             # Backend container
+├── .env.example           # Environment variables template
+└── README.md              # This file
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18+ and npm
 - PostgreSQL 12+
-- QuickBooks Online Developer Account
-- Phone System API Access
+- Docker and Docker Compose (optional)
 
-## 🛠️ Installation
+### 1. Clone and Setup
 
-1. **Clone the repository**
+```bash
+git clone <repository-url>
+cd QuickBooks
+```
 
-   ```bash
-   git clone <repository-url>
-   cd phone-billing-system
-   ```
+### 2. Backend Setup
 
-2. **Install dependencies**
+```bash
+# Install dependencies
+npm install
 
-   ```bash
-   npm install
-   ```
+# Copy environment template
+cp .env.example .env
 
-3. **Environment setup**
+# Edit .env with your configuration
+nano .env
 
-   ```bash
-   cp env.example .env
-   # Edit .env with your configuration
-   ```
+# Build TypeScript
+npm run build
 
-4. **Database setup**
+# Start development server
+npm run dev
+```
 
-   ```bash
-   # Create PostgreSQL database
-   createdb phone_billing
+### 3. Frontend Setup
 
-   # Run migrations (in development)
-   npm run db:migrate
-   ```
+```bash
+# Navigate to frontend directory
+cd frontend
 
-5. **Build the project**
-   ```bash
-   npm run build
-   ```
+# Install dependencies
+npm install
 
-## ⚙️ Configuration
+# Start development server
+npm run dev
+```
+
+### 4. Database Setup
+
+```bash
+# Run database migrations
+npm run db:migrate
+
+# Or use Docker Compose
+docker-compose up -d postgres
+```
+
+### 5. Access the Application
+
+- **Backend API**: http://localhost:3001
+- **Frontend Dashboard**: http://localhost:3000
+- **API Documentation**: http://localhost:3001/api/health
+
+## 🔧 Configuration
 
 ### Environment Variables
 
-Copy `env.example` to `.env` and configure:
+Create a `.env` file based on `.env.example`:
 
-```bash
-# Server
-NODE_ENV=development
+```env
+# Server Configuration
 PORT=3001
+NODE_ENV=development
 
 # Database
 DB_HOST=localhost
@@ -88,291 +170,252 @@ DB_PASSWORD=your_password
 # QuickBooks Online
 QBO_CLIENT_ID=your_qbo_client_id
 QBO_CLIENT_SECRET=your_qbo_client_secret
-QBO_REDIRECT_URI=http://localhost:3001/auth/qbo/callback
+QBO_REDIRECT_URI=http://localhost:3001/api/qbo/callback
 QBO_ENVIRONMENT=sandbox
-QBO_ACCOUNT_ID=your_qbo_account_id
 
-# Phone System
+# Phone System API
 PHONE_API_BASE_URL=https://api.phonesystem.com
 PHONE_API_KEY=your_phone_api_key
 PHONE_API_SECRET=your_phone_api_secret
 
-# Billing
+# Billing Configuration
 BILLING_RATE_PER_MINUTE=1.00
 BILLING_TIMEZONE=America/Los_Angeles
-BILLING_ITEM_ID=PHONE_USAGE_ITEM_ID
+BILLING_ITEM_ID=your_qbo_item_id
+BILLING_TAX_CODE=your_qbo_tax_code
 ```
 
-## 🚀 Usage
+### QBO Setup
 
-### Start the server
+1. **Create QBO App**: Register at [Intuit Developer](https://developer.intuit.com/)
+2. **Configure OAuth**: Set redirect URI and scopes
+3. **Get Credentials**: Note Client ID and Client Secret
+4. **Test in Sandbox**: Use sandbox environment for development
 
-```bash
-# Development
-npm run dev
+### Phone System API
 
-# Production
-npm start
-```
+1. **API Documentation**: Review your phone system's API docs
+2. **Authentication**: Configure API keys and endpoints
+3. **Usage Endpoints**: Ensure CDR data is accessible
+4. **Rate Limits**: Understand API call limitations
 
-### Run billing jobs
+## 📊 Usage
 
-```bash
-# Run monthly billing (previous month)
-npm run billing:run
+### Dashboard Access
 
-# Run billing for specific period
-npm run billing:run --start-date 2025-07-01 --end-date 2025-07-31
+1. **Login**: Use any email/password (demo mode)
+2. **Navigate**: Use sidebar for different sections
+3. **Monitor**: View real-time billing job status
+4. **Manage**: Add/edit clients and run manual jobs
 
-# Dry run (no invoices created)
-npm run billing:run --dry-run
+### Running Billing Jobs
 
-# Process CSV file
-npm run billing:run --csv-file ./usage.csv --output-file ./results.json
+1. **Automatic**: Monthly jobs run automatically on the 1st at 2:00 AM PST
+2. **Manual**: Use dashboard to run jobs for specific periods
+3. **Dry Run**: Test billing logic without creating invoices
+4. **Monitoring**: Track job progress and results in real-time
 
-# Run for specific client
-npm run billing:run --client-id PS-1001
-```
+### Client Management
 
-### API Endpoints
-
-- `GET /health` - Health check
-- `GET /api/v1/billing/jobs` - List billing jobs
-- `POST /api/v1/billing/run` - Run billing job
-- `GET /api/v1/clients` - List clients
-- `GET /api/v1/qbo/auth` - QBO OAuth URL
-- `GET /api/v1/dashboard/overview` - System overview
-
-## 📊 CSV Processing
-
-The system can process CSV files with phone usage data:
-
-```csv
-call_id,client_id,started_at,ended_at,billable_seconds,started_pst,ended_pst
-PS-1001-5012,PS-1001,2025-07-03 19:47:00+00:00,2025-07-03 19:52:41+00:00,341,2025-07-03 12:47:00-07:00,2025-07-03 12:52:41-07:00
-```
-
-Process with:
-
-```bash
-npm run billing:run --csv-file ./usage.csv --output-file ./results.json
-```
-
-## 🔐 QuickBooks Online Setup
-
-1. **Create QBO App**
-
-   - Go to [QBO Developer Portal](https://developer.intuit.com/)
-   - Create new app
-   - Set OAuth2 redirect URI
-   - Note Client ID and Secret
-
-2. **Configure Environment**
-
-   ```bash
-   QBO_CLIENT_ID=your_client_id
-   QBO_CLIENT_SECRET=your_client_secret
-   QBO_REDIRECT_URI=http://localhost:3001/api/v1/qbo/auth/callback
-   QBO_ENVIRONMENT=sandbox
-   ```
-
-3. **Authorize Access**
-   - Visit `/api/v1/qbo/auth`
-   - Complete OAuth flow
-   - Store tokens securely
-
-## 🗄️ Database Schema
-
-### Core Entities
-
-- **Client**: Maps phone system clients to QBO customers
-- **PhoneUsage**: Stores phone usage records
-- **BillingJob**: Tracks billing job executions
-
-### Key Fields
-
-- `phoneSystemClientId`: Phone system identifier
-- `qboCustomerId`: QuickBooks customer ID
-- `billableSeconds`: Usage in seconds
-- `jobId`: Unique billing job identifier
+1. **Add Clients**: Create new client records with mapping
+2. **Phone System ID**: Enter the client ID from your phone system
+3. **QBO Customer ID**: Enter the corresponding QBO customer ID
+4. **Contact Info**: Add billing address and contact details
 
 ## 🧪 Testing
 
+### Backend Testing
+
 ```bash
-# Run tests
+# Run unit tests
 npm test
 
-# Watch mode
-npm run test:watch
+# Run billing job manually
+npm run billing:run -- --dry-run --start-date 2025-01-01 --end-date 2025-01-31
 
-# Test specific file
-npm test -- --testNamePattern="BillingService"
+# Test CSV processing
+npm run billing:run -- --csv-file ./test-data.csv --output-file ./results.json
 ```
 
-## 📝 Logging
+### Frontend Testing
 
-Logs are stored in `./logs/` with daily rotation:
+```bash
+cd frontend
 
-- `combined-YYYY-MM-DD.log` - All logs
-- `error-YYYY-MM-DD.log` - Error logs only
+# Run type checking
+npm run type-check
 
-## 🚨 Monitoring & Alerts
+# Run linting
+npm run lint
+
+# Build for production
+npm run build
+```
+
+### Integration Testing
+
+1. **QBO Sandbox**: Test invoice creation in sandbox environment
+2. **Phone API**: Verify usage data retrieval
+3. **End-to-End**: Run complete billing cycle
+4. **Error Scenarios**: Test failure handling and recovery
+
+## 🚀 Deployment
+
+### Production Deployment
+
+1. **Environment**: Set NODE_ENV=production
+2. **Database**: Use production PostgreSQL instance
+3. **Secrets**: Store sensitive data in environment variables
+4. **SSL**: Configure HTTPS for production
+5. **Monitoring**: Set up logging and alerting
+
+### Docker Deployment
+
+```bash
+# Build and run with Docker Compose
+docker-compose -f docker-compose.prod.yml up -d
+
+# Or build individual containers
+docker build -t phone-billing-backend .
+docker build -t phone-billing-frontend ./frontend
+```
+
+### Cloud Deployment
+
+- **AWS**: Use Lightsail, ECS, or EC2
+- **Azure**: App Service or Container Instances
+- **Google Cloud**: Compute Engine or Cloud Run
+- **Heroku**: Container deployment
+- **DigitalOcean**: Droplet or App Platform
+
+## 📈 Monitoring & Maintenance
 
 ### Health Checks
 
-- `/health` - Basic health
-- `/health/detailed` - Comprehensive status
-- `/health/ready` - Readiness probe
-- `/health/live` - Liveness probe
+- **API Endpoints**: `/health`, `/health/detailed`
+- **Database**: Connection status and query performance
+- **External APIs**: QBO and phone system connectivity
+- **Job Status**: Scheduled job execution monitoring
 
-### Dashboard
+### Logging
 
-- `/api/v1/dashboard/overview` - System overview
-- `/api/v1/dashboard/metrics` - Performance metrics
-- `/api/v1/dashboard/alerts` - System alerts
+- **Application Logs**: Winston-based structured logging
+- **Access Logs**: HTTP request/response logging
+- **Error Logs**: Detailed error tracking and stack traces
+- **Audit Logs**: User actions and system changes
 
-### Kill Switch
+### Alerts
 
-Emergency system shutdown:
+- **Email Notifications**: Job completion/failure alerts
+- **Slack Integration**: Real-time system status updates
+- **Error Thresholds**: Automatic alerting on repeated failures
+- **Performance Monitoring**: Response time and throughput tracking
 
-```bash
-# Enable
-curl -X POST http://localhost:3001/api/v1/dashboard/kill-switch \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true, "reason": "Emergency maintenance"}'
+## 🔒 Security
 
-# Disable
-curl -X POST http://localhost:3001/api/v1/dashboard/kill-switch \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
-```
+### Authentication & Authorization
 
-## 🔒 Security Features
+- **API Security**: Rate limiting and request validation
+- **Data Protection**: Environment variable secrets management
+- **Access Control**: Role-based permissions (can be extended)
+- **Audit Trail**: Comprehensive logging of all operations
 
-- **Rate Limiting**: Configurable API rate limits
-- **Input Validation**: Express-validator for all inputs
-- **CORS Protection**: Configurable cross-origin settings
-- **Helmet**: Security headers
-- **Environment Variables**: Secure configuration management
+### Data Security
 
-## 📦 Deployment
+- **Database**: Encrypted connections and access controls
+- **API Keys**: Secure storage and rotation procedures
+- **OAuth2**: Secure QBO integration with token refresh
+- **HTTPS**: TLS encryption for all communications
 
-### Docker (Recommended)
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY dist ./dist
-EXPOSE 3001
-CMD ["npm", "start"]
-```
-
-### Environment-Specific Configs
-
-```bash
-# Development
-NODE_ENV=development
-LOG_LEVEL=debug
-
-# Production
-NODE_ENV=production
-LOG_LEVEL=info
-KILL_SWITCH_ENABLED=false
-```
-
-## 🚀 Production Checklist
-
-- [ ] Set `NODE_ENV=production`
-- [ ] Configure production database
-- [ ] Set secure `JWT_SECRET`
-- [ ] Configure SSL/TLS
-- [ ] Set up monitoring and alerting
-- [ ] Configure log aggregation
-- [ ] Set up backup strategy
-- [ ] Test kill switch functionality
-- [ ] Verify idempotency
-- [ ] Test QBO sandbox integration
-
-## 🐛 Troubleshooting
+## 🆘 Troubleshooting
 
 ### Common Issues
 
-1. **Database Connection Failed**
-
-   - Check PostgreSQL service
-   - Verify connection credentials
-   - Check firewall settings
-
-2. **QBO Authentication Failed**
-
-   - Verify OAuth credentials
-   - Check redirect URI configuration
-   - Ensure app is approved
-
-3. **Phone System API Errors**
-   - Verify API credentials
-   - Check network connectivity
-   - Review API rate limits
+1. **Database Connection**: Check PostgreSQL service and credentials
+2. **QBO Authentication**: Verify OAuth configuration and tokens
+3. **Phone API**: Confirm API endpoints and authentication
+4. **Job Failures**: Review logs for specific error messages
+5. **Frontend Issues**: Check browser console and network requests
 
 ### Debug Mode
 
 ```bash
 # Enable debug logging
-LOG_LEVEL=debug npm start
+LOG_LEVEL=debug npm run dev
 
-# Check logs
-tail -f logs/combined-$(date +%Y-%m-%d).log
+# Check job scheduler status
+curl http://localhost:3001/api/billing/status
+
+# Test API connections
+curl http://localhost:3001/api/health/detailed
 ```
+
+### Support Resources
+
+- **Logs**: Check application and system logs
+- **Documentation**: Review API documentation and examples
+- **Configuration**: Verify environment variables and settings
+- **Network**: Test external API connectivity
+
+## 🔮 Future Enhancements
+
+### Planned Features
+
+- **Multi-tenant Support**: Multiple company billing management
+- **Advanced Billing**: Tiered pricing and volume discounts
+- **Payment Integration**: Auto-charging and payment processing
+- **Reporting**: Advanced analytics and custom reports
+- **Mobile App**: Native mobile application for monitoring
+
+### Scalability Improvements
+
+- **Microservices**: Break down into smaller, focused services
+- **Message Queues**: Redis-based job queuing system
+- **Caching**: Redis caching for frequently accessed data
+- **Load Balancing**: Multiple backend instances
+- **Database Sharding**: Horizontal database scaling
 
 ## 📚 API Documentation
 
-### Billing Endpoints
+### Core Endpoints
 
-| Method | Endpoint                 | Description           |
-| ------ | ------------------------ | --------------------- |
-| GET    | `/api/v1/billing/jobs`   | List billing jobs     |
-| POST   | `/api/v1/billing/run`    | Run billing job       |
-| GET    | `/api/v1/billing/status` | Billing system status |
+- `GET /api/health` - System health check
+- `GET /api/billing/jobs` - List billing jobs
+- `POST /api/billing/run` - Run manual billing job
+- `GET /api/clients` - List clients
+- `POST /api/clients` - Create new client
+- `GET /api/settings` - System configuration
 
-### Client Management
+### Authentication
 
-| Method | Endpoint              | Description   |
-| ------ | --------------------- | ------------- |
-| GET    | `/api/v1/clients`     | List clients  |
-| POST   | `/api/v1/clients`     | Create client |
-| PUT    | `/api/v1/clients/:id` | Update client |
+- **QBO OAuth**: `/api/qbo/auth` and `/api/qbo/callback`
+- **Phone System**: API key authentication in headers
+- **Session Management**: JWT tokens for user sessions
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch
-3. Make changes
-4. Add tests
-5. Submit pull request
+1. **Fork the repository**
+2. **Create feature branch**: `git checkout -b feature/new-feature`
+3. **Make changes** and test thoroughly
+4. **Commit changes**: `git commit -am 'Add new feature'`
+5. **Push to branch**: `git push origin feature/new-feature`
+6. **Create pull request**
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is proprietary software developed for internal business automation.
 
 ## 🆘 Support
 
 For support and questions:
 
-- Create an issue in the repository
-- Check the logs for error details
-- Review the troubleshooting section
-- Contact the development team
+- **Documentation**: Review this README and component documentation
+- **Issues**: Report bugs and feature requests
+- **Development**: Contact the development team
+- **Operations**: Follow the operational runbook
 
-## 🔄 Changelog
+---
 
-### v1.0.0
+**Built with ❤️ for automated business efficiency**
 
-- Initial release
-- Core billing functionality
-- QBO integration
-- Phone system API integration
-- Automated scheduling
-- Dashboard and monitoring
-- Kill switch functionality
+_Phone Billing System MVP - Production Ready_
