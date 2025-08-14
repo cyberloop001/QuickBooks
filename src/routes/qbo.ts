@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { body, query, validationResult } from "express-validator";
 import { QBOService } from "../services/QBOService";
 import { logger } from "../utils/logger";
+import crypto from "crypto";
+import { config } from "../config";
 
 const router = Router();
 const qboService = new QBOService();
@@ -259,6 +261,49 @@ router.get("/status", async (req: Request, res: Response) => {
       success: false,
       error: error instanceof Error ? error.message : "Failed to get status",
     });
+  }
+});
+
+/**
+ * POST /qbo/webhook - Intuit Webhooks endpoint
+ * Intuit sends 'intuit-signature' header = base64(HMAC-SHA256(webhookVerifier, rawBody))
+ */
+router.post("/webhook", (req: Request, res: Response) => {
+  try {
+    const signature = req.get("intuit-signature");
+    if (!signature) {
+      return res.status(401).send("FORBIDDEN");
+    }
+
+    if (!config.qbo.webhookVerifier) {
+      logger.warn("QBO webhook verifier secret is not configured");
+      return res.status(500).send("Webhook not configured");
+    }
+
+    // Raw body is attached by middleware in server.ts
+    const rawBody = (req as any).rawBody as Buffer | string | undefined;
+    if (!rawBody) {
+      logger.warn("Missing rawBody on webhook request");
+      return res.status(400).send("Bad Request");
+    }
+
+    const computed = crypto
+      .createHmac("sha256", config.qbo.webhookVerifier)
+      .update(typeof rawBody === "string" ? rawBody : Buffer.from(rawBody))
+      .digest("base64");
+
+    if (computed !== signature) {
+      logger.warn("QBO webhook signature mismatch");
+      return res.status(401).send("FORBIDDEN");
+    }
+
+    logger.info("Valid QBO webhook received");
+    // Optionally, queue processing; for now just log and 200
+    logger.info(JSON.stringify(req.body));
+    return res.status(200).send("SUCCESS");
+  } catch (error) {
+    logger.error("Error handling QBO webhook", { error });
+    return res.status(500).send("Internal Server Error");
   }
 });
 

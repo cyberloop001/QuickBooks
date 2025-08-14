@@ -27,6 +27,7 @@ export const config = {
     environment: process.env.QBO_ENVIRONMENT || "sandbox",
     accountId: process.env.QBO_ACCOUNT_ID || "",
     scope: process.env.QBO_SCOPE || "com.intuit.quickbooks.accounting",
+    webhookVerifier: process.env.QBO_WEBHOOK_VERIFIER || "",
   },
   phoneSystem: {
     baseUrl: process.env.PHONE_API_BASE_URL || "",
