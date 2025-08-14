@@ -37,6 +37,26 @@ app.use(
   })
 );
 
+// Raw body capture for QBO webhooks (must come before JSON parsing)
+app.post(
+  "/api/v1/qbo/webhook",
+  express.raw({ type: "application/json" }),
+  (req, _res, next) => {
+    (req as any).rawBody = req.body;
+    try {
+      // Parse JSON for downstream handler while retaining rawBody
+      const text =
+        req.body instanceof Buffer
+          ? req.body.toString("utf8")
+          : String(req.body || "");
+      (req as any).body = text ? JSON.parse(text) : {};
+    } catch {
+      (req as any).body = {};
+    }
+    next();
+  }
+);
+
 // Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
