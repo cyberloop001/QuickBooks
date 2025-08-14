@@ -92,7 +92,11 @@ export class QBOService {
   /**
    * Handle OAuth callback and exchange code for tokens
    */
-  async handleCallback(callbackUrl: string): Promise<QBOToken> {
+  async handleCallback(
+    callbackUrl: string,
+    state: string,
+    realmId: string
+  ): Promise<QBOToken> {
     if (!this.oauthClient) {
       throw new Error("OAuth client not initialized");
     }
@@ -103,14 +107,18 @@ export class QBOService {
 
       this.tokens = {
         ...tokenData,
+        realmId: realmId,
+        state: state,
         expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
       };
 
       // Initialize API client with new tokens
       this.initializeAPIClient();
-
+      if (!this.tokens) {
+        throw new Error("Failed to create tokens object");
+      }
       logQBOServiceAction("handle_callback", { success: true });
-      return this.tokens!;
+      return this.tokens;
     } catch (error) {
       logger.error("Failed to handle OAuth callback", { error });
       logQBOServiceAction("handle_callback", {
@@ -230,6 +238,12 @@ export class QBOService {
       throw new Error("Not authenticated with QBO");
     }
 
+    // Validate tokens have required fields
+    if (!this.tokens.realmId) {
+      logger.error("Missing realmId in tokens", { tokens: this.tokens });
+      throw new Error("Invalid tokens: missing realmId");
+    }
+
     try {
       const response = await this.api.get(
         `/companyinfo/${this.tokens.realmId}`
@@ -261,19 +275,54 @@ export class QBOService {
     }
 
     try {
-      const response = await this.api.get(`/query`, {
-        params: {
-          query: `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' OR PrimaryEmailAddr LIKE '%${query}%' MAXRESULTS 20`,
-        },
-      });
+      // QBO doesn't support OR operations, so we need to make separate queries
+      const queries = [
+        `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' MAXRESULTS 20`,
+        `SELECT * FROM Customer WHERE PrimaryEmailAddr LIKE '%${query}%' MAXRESULTS 20`,
+      ];
 
-      const customers = response.data.QueryResponse?.Customer || [];
+      const allCustomers: any[] = [];
+      const seenIds = new Set<string>();
+
+      for (const queryStr of queries) {
+        try {
+          const response = await this.api.get(`/query`, {
+            params: { query: queryStr },
+          });
+
+          const customers = response.data.QueryResponse?.Customer || [];
+
+          // Add customers, avoiding duplicates by ID
+          for (const customer of customers) {
+            if (!seenIds.has(customer.Id)) {
+              seenIds.add(customer.Id);
+              allCustomers.push(customer);
+            }
+          }
+        } catch (queryError) {
+          logger.warn(`Failed to execute customer query: ${queryStr}`, {
+            queryError,
+          });
+          // Continue with other queries
+        }
+      }
+
+      // Sort by DisplayName for better user experience
+      allCustomers.sort((a, b) =>
+        (a.DisplayName || "").localeCompare(b.DisplayName || "")
+      );
+
+      // Limit to 20 total results
+      const limitedCustomers = allCustomers.slice(0, 20);
+
       logQBOServiceAction("search_customers", {
         success: true,
         query,
-        count: customers.length,
+        count: limitedCustomers.length,
+        totalFound: allCustomers.length,
       });
-      return customers;
+
+      return limitedCustomers;
     } catch (error) {
       logger.error("Failed to search customers", { error, query });
       logQBOServiceAction("search_customers", {

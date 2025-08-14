@@ -53,7 +53,11 @@ router.get("/callback", async (req: Request, res: Response) => {
       req.protocol + "://" + req.get("host") + req.originalUrl;
 
     // Exchange code for tokens
-    const tokens = await qboService.handleCallback(callbackUrl);
+    const tokens = await qboService.handleCallback(
+      callbackUrl,
+      state as string,
+      realmId as string
+    );
 
     // Store tokens (in production, store in database)
     // For now, we'll store in memory (not recommended for production)

@@ -29,7 +29,7 @@ export function QBOCallback() {
 
       // Call the backend to handle the OAuth callback
       const response = await fetch(
-        `/api/qbo/callback?code=${code}&state=${state}&realmId=${realmId}`
+        `/api/v1/qbo/callback?code=${code}&state=${state}&realmId=${realmId}`
       );
       const data = await response.json();
 
