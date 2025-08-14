@@ -14,8 +14,8 @@ RUN apk add --no-cache \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies first (including dev dependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -23,9 +23,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Remove development dependencies and source code
+# Remove development dependencies and source code, then install only production dependencies
 RUN rm -rf src/ && rm -rf node_modules/
-RUN npm ci --only=production
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Create logs directory
 RUN mkdir -p logs
