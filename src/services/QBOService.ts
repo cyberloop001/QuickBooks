@@ -141,26 +141,46 @@ export class QBOService {
       throw new Error("OAuth client not initialized");
     }
 
+    if (!this.tokens?.refresh_token) {
+      throw new Error("No refresh token available");
+    }
+
     try {
+      logger.info("Refreshing QBO access token...");
+
       const authResponse = await this.oauthClient.refresh();
       const tokenData = authResponse.getJson();
 
-      this.tokens = {
+      // Preserve the realmId from existing tokens
+      const newTokens: QBOToken = {
         ...tokenData,
+        realmId: this.tokens.realmId,
         expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
       };
+
+      this.tokens = newTokens;
 
       // Update API client with new tokens
       this.initializeAPIClient();
 
+      logger.info("QBO access token refreshed successfully", {
+        expiresAt: newTokens.expires_at,
+        expiresIn: tokenData.expires_in,
+      });
+
       logQBOServiceAction("refresh_token", { success: true });
-      return this.tokens!;
+      return newTokens;
     } catch (error) {
       logger.error("Failed to refresh access token", { error });
       logQBOServiceAction("refresh_token", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       });
+
+      // Clear invalid tokens
+      this.tokens = null;
+      this.api = null;
+
       throw new Error(
         `Token refresh failed: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -228,6 +248,42 @@ export class QBOService {
     );
 
     return now < expiresAt;
+  }
+
+  /**
+   * Check if tokens need refreshing
+   */
+  needsTokenRefresh(): boolean {
+    if (!this.tokens) return false;
+
+    // Check if token expires within 10 minutes
+    const now = new Date();
+    const expiresAt = new Date(
+      this.tokens.expires_at.getTime() - 10 * 60 * 1000
+    );
+
+    return now >= expiresAt;
+  }
+
+  /**
+   * Ensure valid tokens (refresh if needed)
+   */
+  async ensureValidTokens(): Promise<boolean> {
+    if (!this.tokens) return false;
+
+    if (this.needsTokenRefresh()) {
+      try {
+        await this.refreshAccessToken();
+        return true;
+      } catch (error) {
+        logger.error("Failed to refresh tokens in ensureValidTokens", {
+          error,
+        });
+        return false;
+      }
+    }
+
+    return this.isAuthenticated();
   }
 
   /**
@@ -489,5 +545,36 @@ export class QBOService {
   setTokens(tokens: QBOToken): void {
     this.tokens = tokens;
     this.initializeAPIClient();
+  }
+
+  /**
+   * Get token status information
+   */
+  getTokenStatus(): {
+    hasTokens: boolean;
+    isAuthenticated: boolean;
+    needsRefresh: boolean;
+    expiresAt?: Date;
+    expiresIn?: string;
+  } {
+    if (!this.tokens) {
+      return {
+        hasTokens: false,
+        isAuthenticated: false,
+        needsRefresh: false,
+      };
+    }
+
+    const now = new Date();
+    const expiresIn = this.tokens.expires_at.getTime() - now.getTime();
+    const expiresInMinutes = Math.max(0, Math.floor(expiresIn / (1000 * 60)));
+
+    return {
+      hasTokens: true,
+      isAuthenticated: this.isAuthenticated(),
+      needsRefresh: this.needsTokenRefresh(),
+      expiresAt: this.tokens.expires_at,
+      expiresIn: `${expiresInMinutes} minutes`,
+    };
   }
 }

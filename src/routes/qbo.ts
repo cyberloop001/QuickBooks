@@ -94,6 +94,7 @@ router.get("/refresh", async (req: Request, res: Response) => {
       data: {
         message: "Token refreshed successfully",
         expiresAt: tokens.expires_at,
+        expiresIn: tokens.expires_in,
       },
     });
   } catch (error) {
@@ -101,6 +102,58 @@ router.get("/refresh", async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : "Failed to refresh token",
+    });
+  }
+});
+
+/**
+ * GET /qbo/token-status - Get current token status
+ */
+router.get("/token-status", async (req: Request, res: Response) => {
+  try {
+    const tokenStatus = qboService.getTokenStatus();
+
+    res.json({
+      success: true,
+      data: tokenStatus,
+    });
+  } catch (error) {
+    logger.error("Failed to get QBO token status", { error });
+    res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to get token status",
+    });
+  }
+});
+
+/**
+ * POST /qbo/ensure-tokens - Ensure tokens are valid (refresh if needed)
+ */
+router.post("/ensure-tokens", async (req: Request, res: Response) => {
+  try {
+    const isValid = await qboService.ensureValidTokens();
+
+    if (isValid) {
+      const tokenStatus = qboService.getTokenStatus();
+      res.json({
+        success: true,
+        data: {
+          message: "Tokens are valid",
+          ...tokenStatus,
+        },
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        error: "Failed to ensure valid tokens. Re-authentication required.",
+      });
+    }
+  } catch (error) {
+    logger.error("Failed to ensure QBO tokens", { error });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to ensure tokens",
     });
   }
 });
