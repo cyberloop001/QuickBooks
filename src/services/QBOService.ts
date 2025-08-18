@@ -92,7 +92,11 @@ export class QBOService {
   /**
    * Handle OAuth callback and exchange code for tokens
    */
-  async handleCallback(callbackUrl: string): Promise<QBOToken> {
+  async handleCallback(
+    callbackUrl: string,
+    state: string,
+    realmId: string
+  ): Promise<QBOToken> {
     if (!this.oauthClient) {
       throw new Error("OAuth client not initialized");
     }
@@ -103,14 +107,18 @@ export class QBOService {
 
       this.tokens = {
         ...tokenData,
+        realmId: realmId,
+        state: state,
         expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
       };
 
       // Initialize API client with new tokens
       this.initializeAPIClient();
-
+      if (!this.tokens) {
+        throw new Error("Failed to create tokens object");
+      }
       logQBOServiceAction("handle_callback", { success: true });
-      return this.tokens!;
+      return this.tokens;
     } catch (error) {
       logger.error("Failed to handle OAuth callback", { error });
       logQBOServiceAction("handle_callback", {
@@ -133,26 +141,46 @@ export class QBOService {
       throw new Error("OAuth client not initialized");
     }
 
+    if (!this.tokens?.refresh_token) {
+      throw new Error("No refresh token available");
+    }
+
     try {
+      logger.info("Refreshing QBO access token...");
+
       const authResponse = await this.oauthClient.refresh();
       const tokenData = authResponse.getJson();
 
-      this.tokens = {
+      // Preserve the realmId from existing tokens
+      const newTokens: QBOToken = {
         ...tokenData,
+        realmId: this.tokens.realmId,
         expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
       };
+
+      this.tokens = newTokens;
 
       // Update API client with new tokens
       this.initializeAPIClient();
 
+      logger.info("QBO access token refreshed successfully", {
+        expiresAt: newTokens.expires_at,
+        expiresIn: tokenData.expires_in,
+      });
+
       logQBOServiceAction("refresh_token", { success: true });
-      return this.tokens!;
+      return newTokens;
     } catch (error) {
       logger.error("Failed to refresh access token", { error });
       logQBOServiceAction("refresh_token", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       });
+
+      // Clear invalid tokens
+      this.tokens = null;
+      this.api = null;
+
       throw new Error(
         `Token refresh failed: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -223,11 +251,53 @@ export class QBOService {
   }
 
   /**
+   * Check if tokens need refreshing
+   */
+  needsTokenRefresh(): boolean {
+    if (!this.tokens) return false;
+
+    // Check if token expires within 10 minutes
+    const now = new Date();
+    const expiresAt = new Date(
+      this.tokens.expires_at.getTime() - 10 * 60 * 1000
+    );
+
+    return now >= expiresAt;
+  }
+
+  /**
+   * Ensure valid tokens (refresh if needed)
+   */
+  async ensureValidTokens(): Promise<boolean> {
+    if (!this.tokens) return false;
+
+    if (this.needsTokenRefresh()) {
+      try {
+        await this.refreshAccessToken();
+        return true;
+      } catch (error) {
+        logger.error("Failed to refresh tokens in ensureValidTokens", {
+          error,
+        });
+        return false;
+      }
+    }
+
+    return this.isAuthenticated();
+  }
+
+  /**
    * Get company information
    */
   async getCompanyInfo(): Promise<QBOCompanyInfo> {
     if (!this.api || !this.tokens) {
       throw new Error("Not authenticated with QBO");
+    }
+
+    // Validate tokens have required fields
+    if (!this.tokens.realmId) {
+      logger.error("Missing realmId in tokens", { tokens: this.tokens });
+      throw new Error("Invalid tokens: missing realmId");
     }
 
     try {
@@ -261,19 +331,54 @@ export class QBOService {
     }
 
     try {
-      const response = await this.api.get(`/query`, {
-        params: {
-          query: `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' OR PrimaryEmailAddr LIKE '%${query}%' MAXRESULTS 20`,
-        },
-      });
+      // QBO doesn't support OR operations, so we need to make separate queries
+      const queries = [
+        `SELECT * FROM Customer WHERE DisplayName LIKE '%${query}%' MAXRESULTS 20`,
+        `SELECT * FROM Customer WHERE PrimaryEmailAddr LIKE '%${query}%' MAXRESULTS 20`,
+      ];
 
-      const customers = response.data.QueryResponse?.Customer || [];
+      const allCustomers: any[] = [];
+      const seenIds = new Set<string>();
+
+      for (const queryStr of queries) {
+        try {
+          const response = await this.api.get(`/query`, {
+            params: { query: queryStr },
+          });
+
+          const customers = response.data.QueryResponse?.Customer || [];
+
+          // Add customers, avoiding duplicates by ID
+          for (const customer of customers) {
+            if (!seenIds.has(customer.Id)) {
+              seenIds.add(customer.Id);
+              allCustomers.push(customer);
+            }
+          }
+        } catch (queryError) {
+          logger.warn(`Failed to execute customer query: ${queryStr}`, {
+            queryError,
+          });
+          // Continue with other queries
+        }
+      }
+
+      // Sort by DisplayName for better user experience
+      allCustomers.sort((a, b) =>
+        (a.DisplayName || "").localeCompare(b.DisplayName || "")
+      );
+
+      // Limit to 20 total results
+      const limitedCustomers = allCustomers.slice(0, 20);
+
       logQBOServiceAction("search_customers", {
         success: true,
         query,
-        count: customers.length,
+        count: limitedCustomers.length,
+        totalFound: allCustomers.length,
       });
-      return customers;
+
+      return limitedCustomers;
     } catch (error) {
       logger.error("Failed to search customers", { error, query });
       logQBOServiceAction("search_customers", {
@@ -440,5 +545,36 @@ export class QBOService {
   setTokens(tokens: QBOToken): void {
     this.tokens = tokens;
     this.initializeAPIClient();
+  }
+
+  /**
+   * Get token status information
+   */
+  getTokenStatus(): {
+    hasTokens: boolean;
+    isAuthenticated: boolean;
+    needsRefresh: boolean;
+    expiresAt?: Date;
+    expiresIn?: string;
+  } {
+    if (!this.tokens) {
+      return {
+        hasTokens: false,
+        isAuthenticated: false,
+        needsRefresh: false,
+      };
+    }
+
+    const now = new Date();
+    const expiresIn = this.tokens.expires_at.getTime() - now.getTime();
+    const expiresInMinutes = Math.max(0, Math.floor(expiresIn / (1000 * 60)));
+
+    return {
+      hasTokens: true,
+      isAuthenticated: this.isAuthenticated(),
+      needsRefresh: this.needsTokenRefresh(),
+      expiresAt: this.tokens.expires_at,
+      expiresIn: `${expiresInMinutes} minutes`,
+    };
   }
 }
