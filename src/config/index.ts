@@ -29,10 +29,12 @@ export const config = {
     scope: process.env.QBO_SCOPE || "com.intuit.quickbooks.accounting",
     webhookVerifier: process.env.QBO_WEBHOOK_VERIFIER || "",
   },
-  phoneSystem: {
-    baseUrl: process.env.PHONE_API_BASE_URL || "",
-    apiKey: process.env.PHONE_API_KEY || "",
-    apiSecret: process.env.PHONE_API_SECRET || "",
+
+  genesys: {
+    baseUrl: process.env.GENESYS_BASE_URL || "https://api.mypurecloud.com",
+    clientId: process.env.GENESYS_CLIENT_ID || "",
+    clientSecret: process.env.GENESYS_CLIENT_SECRET || "",
+    organizationId: process.env.GENESYS_ORG_ID || "",
   },
   billing: {
     ratePerMinute: parseFloat(process.env.BILLING_RATE_PER_MINUTE || "1.00"),
