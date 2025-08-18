@@ -9,7 +9,7 @@ import {
   BillingJobType,
 } from "../entities/BillingJob";
 import { QBOService } from "./QBOService";
-import { PhoneSystemService } from "./PhoneSystemService";
+import { GenesysService } from "./GenesysService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
 
@@ -36,11 +36,11 @@ export interface ClientBillingResult {
 
 export class BillingService {
   private qboService: QBOService;
-  private phoneSystemService: PhoneSystemService;
+  private genesysService: GenesysService;
 
   constructor() {
     this.qboService = new QBOService();
-    this.phoneSystemService = new PhoneSystemService();
+    this.genesysService = new GenesysService();
   }
 
   /**
@@ -139,7 +139,7 @@ export class BillingService {
   }
 
   /**
-   * Fetch phone usage data from phone system API
+   * Fetch phone usage data from phone system API or Genesys Cloud
    */
   private async fetchPhoneUsageData(
     startDate: Date,
@@ -147,11 +147,52 @@ export class BillingService {
     clientId?: string
   ): Promise<any[]> {
     try {
-      const usageData = await this.phoneSystemService.getUsageData(
-        startDate,
-        endDate,
-        clientId
-      );
+      let usageData: any[] = [];
+
+      // Try Genesys Cloud first if configured
+      if (config.genesys.clientId && config.genesys.clientSecret) {
+        try {
+          logger.info("Attempting to fetch data from Genesys Cloud...");
+          const genesysData = await this.genesysService.getCallRecords(
+            startDate,
+            endDate
+          );
+
+          // Convert Genesys data to billing format
+          usageData = genesysData.map((record) => ({
+            call_id: record.conversationId,
+            client_id: clientId || record.userId || "unknown",
+            started_at: record.startTime,
+            ended_at: record.endTime,
+            billable_seconds: record.duration,
+            started_pst: record.startTime, // Genesys provides UTC, convert if needed
+            ended_pst: record.endTime,
+            source: "genesys",
+          }));
+
+          logger.info("Successfully fetched data from Genesys Cloud", {
+            count: usageData.length,
+            startDate,
+            endDate,
+          });
+        } catch (genesysError) {
+          logger.warn(
+            "Failed to fetch from Genesys Cloud, falling back to phone system",
+            {
+              error: genesysError,
+            }
+          );
+        }
+      }
+
+      // If no Genesys data, log warning
+      if (usageData.length === 0) {
+        logger.warn("No call data available from Genesys Cloud", {
+          startDate,
+          endDate,
+          clientId,
+        });
+      }
 
       // Store usage data in database
       await this.storePhoneUsageData(usageData);
@@ -222,7 +263,7 @@ export class BillingService {
       if (!aggregatedUsage.has(clientId)) {
         // Get client details
         const client = await clientRepo.findOne({
-          where: { phoneSystemClientId: clientId },
+          where: { genesysClientId: clientId },
         });
 
         if (!client) {
@@ -311,8 +352,8 @@ export class BillingService {
     if (!isDryRun) {
       const existingInvoice = await this.qboService.findExistingInvoice(
         client.qboCustomerId,
-        billingJob.billingPeriodStart,
-        billingJob.billingPeriodEnd,
+        billingJob.startDate,
+        billingJob.endDate,
         billingJob.jobId
       );
 
@@ -375,8 +416,8 @@ export class BillingService {
     billingJob: BillingJob
   ): any {
     const billingPeriod = `${
-      billingJob.billingPeriodStart.toISOString().split("T")[0]
-    } to ${billingJob.billingPeriodEnd.toISOString().split("T")[0]}`;
+      billingJob.startDate.toISOString().split("T")[0]
+    } to ${billingJob.endDate.toISOString().split("T")[0]}`;
 
     return {
       Line: [
@@ -390,21 +431,19 @@ export class BillingService {
             Qty: totalMinutes,
             UnitPrice: config.billing.ratePerMinute,
           },
-          Description: `Phone usage for ${moment(
-            billingJob.billingPeriodStart
-          ).format("MMMM YYYY")} (PST)`,
+          Description: `Phone usage for ${moment(billingJob.startDate).format(
+            "MMMM YYYY"
+          )} (PST)`,
           Memo: `Billing period: ${billingPeriod} PST`,
         },
       ],
       CustomerRef: {
         value: client.qboCustomerId,
       },
-      DocNumber: `INV-${moment(billingJob.billingPeriodStart).format(
-        "YYYY-MM"
-      )}-${client.phoneSystemClientId}`,
-      TxnDate: moment(billingJob.billingPeriodEnd)
-        .add(1, "day")
-        .format("YYYY-MM-DD"),
+      DocNumber: `INV-${moment(billingJob.startDate).format("YYYY-MM")}-${
+        client.genesysClientId
+      }`,
+      TxnDate: moment(billingJob.endDate).add(1, "day").format("YYYY-MM-DD"),
       BillEmail: client.email ? { Address: client.email } : undefined,
       ShipFromAddr: {
         Line1: client.address || "Your Company Name",
@@ -414,9 +453,9 @@ export class BillingService {
         Country: client.country || "US",
       },
       CustomerMemo: {
-        value: `Phone usage charges for ${moment(
-          billingJob.billingPeriodStart
-        ).format("MMMM YYYY")}`,
+        value: `Phone usage charges for ${moment(billingJob.startDate).format(
+          "MMMM YYYY"
+        )}`,
       },
       PrivateNote: `Generated by automated billing system - Job ID: ${billingJob.jobId}`,
     };
@@ -461,9 +500,8 @@ export class BillingService {
     billingJob.jobId = jobId;
     billingJob.type = type;
     billingJob.status = BillingJobStatus.PENDING;
-    billingJob.clientId = clientId || "";
-    billingJob.billingPeriodStart = startDate;
-    billingJob.billingPeriodEnd = endDate;
+    billingJob.startDate = startDate;
+    billingJob.endDate = endDate;
     billingJob.startedAt = new Date();
 
     return await billingJobRepo.save(billingJob);
@@ -509,11 +547,11 @@ export class BillingService {
     const invoicesFailed = results.filter((r) => r.error).length;
 
     await billingJobRepo.update(jobId, {
-      totalCalls,
-      totalMinutes,
+      totalClients: results.length,
+      totalInvoices: invoicesCreated,
       totalAmount,
-      invoicesCreated,
-      invoicesFailed,
+      successfulInvoices: invoicesCreated,
+      failedInvoices: invoicesFailed,
     });
   }
 }

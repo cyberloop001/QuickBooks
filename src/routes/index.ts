@@ -2,7 +2,8 @@ import { Router, Application } from "express";
 import { billingRoutes } from "./billing";
 import { clientRoutes } from "./client";
 import { qboRoutes } from "./qbo";
-import { phoneSystemRoutes } from "./phoneSystem";
+
+import { genesysRoutes } from "./genesys";
 import { dashboardRoutes } from "./dashboard";
 import { healthRoutes } from "./health";
 
@@ -14,7 +15,8 @@ export function setupRoutes(app: Application): void {
   apiRouter.use("/billing", billingRoutes);
   apiRouter.use("/clients", clientRoutes);
   apiRouter.use("/qbo", qboRoutes);
-  apiRouter.use("/phone-system", phoneSystemRoutes);
+
+  apiRouter.use("/genesys", genesysRoutes);
   apiRouter.use("/dashboard", dashboardRoutes);
   apiRouter.use("/health", healthRoutes);
 
@@ -30,7 +32,8 @@ export function setupRoutes(app: Application): void {
         billing: "/api/v1/billing",
         clients: "/api/v1/clients",
         qbo: "/api/v1/qbo",
-        phoneSystem: "/api/v1/phone-system",
+
+        genesys: "/api/v1/genesys",
         dashboard: "/api/v1/dashboard",
         health: "/api/v1/health",
       },

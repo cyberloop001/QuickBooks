@@ -17,7 +17,7 @@ END $$;
 -- Table: clients
 CREATE TABLE IF NOT EXISTS clients (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "phoneSystemClientId" text UNIQUE NOT NULL,
+  "genesysClientId" text UNIQUE NOT NULL,
   "qboCustomerId" text UNIQUE,
   "name" text NOT NULL,
   "email" text,
