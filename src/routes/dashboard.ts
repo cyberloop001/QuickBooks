@@ -1,210 +1,444 @@
 import { Router, Request, Response } from "express";
+import { query, validationResult } from "express-validator";
+import { getRepository } from "typeorm";
+import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
+import { Client } from "../entities/Client";
+import { PhoneUsage } from "../entities/PhoneUsage";
+import { QBOService } from "../services/QBOService";
+import { GenesysService } from "../services/GenesysService";
+import { JobScheduler } from "../jobs/scheduler";
 import { logger } from "../utils/logger";
-import { getKillSwitchStatus } from "../middleware/killSwitch";
+import { config } from "../config";
 
 const router = Router();
+const qboService = new QBOService();
+const genesysService = new GenesysService();
+const jobScheduler = new JobScheduler();
 
 /**
- * GET /dashboard/overview - Get system overview
+ * GET /dashboard/overview - Get system overview and key metrics
  */
 router.get("/overview", async (req: Request, res: Response) => {
   try {
-    // This would fetch real data from database
-    // For now, return placeholder data
-    const overview = {
-      systemStatus: "healthy",
-      lastBillingRun: new Date().toISOString(),
-      nextBillingRun: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      totalClients: 0,
-      activeClients: 0,
-      totalInvoices: 0,
-      totalRevenue: 0,
-      killSwitch: getKillSwitchStatus(),
-      recentJobs: [],
-      systemMetrics: {
-        uptime: process.uptime(),
-        memoryUsage: process.memoryUsage(),
-        cpuUsage: 0,
-      },
-    };
+    const [
+      totalClients,
+      totalBillingJobs,
+      successfulJobs,
+      failedJobs,
+      totalInvoices,
+      totalRevenue,
+      recentUsage,
+    ] = await Promise.all([
+      getRepository(Client).count(),
+      getRepository(BillingJob).count(),
+      getRepository(BillingJob).count({
+        where: { status: BillingJobStatus.COMPLETED },
+      }),
+      getRepository(BillingJob).count({
+        where: { status: BillingJobStatus.FAILED },
+      }),
+      getRepository(BillingJob)
+        .createQueryBuilder("job")
+        .select("SUM(job.totalInvoices)", "total")
+        .getRawOne(),
+      getRepository(BillingJob)
+        .createQueryBuilder("job")
+        .select("SUM(job.totalAmount)", "total")
+        .getRawOne(),
+      getRepository(PhoneUsage)
+        .createQueryBuilder("usage")
+        .select("SUM(usage.billableMinutes)", "totalMinutes")
+        .addSelect("COUNT(usage.id)", "totalCalls")
+        .where("usage.createdAt >= :date", {
+          date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        })
+        .getRawOne(),
+    ]);
+
+    // Get system status
+    const qboStatus = qboService.getTokenStatus();
+    const genesysStatus = genesysService.getStatus();
+    const schedulerStatus = jobScheduler.getStatus();
 
     res.json({
       success: true,
-      data: overview,
+      data: {
+        clients: {
+          total: totalClients,
+        },
+        billing: {
+          totalJobs: totalBillingJobs,
+          successfulJobs,
+          failedJobs,
+          totalInvoices: totalInvoices?.total || 0,
+          totalRevenue: totalRevenue?.total || 0,
+        },
+        usage: {
+          totalMinutes: recentUsage?.totalMinutes || 0,
+          totalCalls: recentUsage?.totalCalls || 0,
+        },
+        system: {
+          qbo: qboStatus,
+          genesys: genesysStatus,
+          scheduler: schedulerStatus,
+        },
+        config: {
+          timezone: config.billing.timezone,
+          ratePerMinute: config.billing.ratePerMinute,
+          currency: config.billing.currency,
+        },
+      },
     });
   } catch (error) {
     logger.error("Failed to get dashboard overview", { error });
     res.status(500).json({
       success: false,
-      error: "Failed to get dashboard overview",
+      error: error instanceof Error ? error.message : "Failed to get overview",
     });
   }
 });
 
 /**
- * GET /dashboard/metrics - Get system metrics
+ * GET /dashboard/billing-jobs - Get billing job history
  */
-router.get("/metrics", async (req: Request, res: Response) => {
+router.get(
+  "/billing-jobs",
+  [
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
+    query("status")
+      .optional()
+      .isIn(Object.values(BillingJobStatus))
+      .withMessage("Invalid status"),
+    query("startDate")
+      .optional()
+      .isISO8601()
+      .withMessage("Start date must be a valid ISO date"),
+    query("endDate")
+      .optional()
+      .isISO8601()
+      .withMessage("End date must be a valid ISO date"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      const { page = 1, limit = 20, status, startDate, endDate } = req.query;
+
+      const queryBuilder = getRepository(BillingJob).createQueryBuilder("job");
+
+      // Add filters
+      if (status) {
+        queryBuilder.andWhere("job.status = :status", { status });
+      }
+
+      if (startDate) {
+        queryBuilder.andWhere("job.createdAt >= :startDate", { startDate });
+      }
+
+      if (endDate) {
+        queryBuilder.andWhere("job.createdAt <= :endDate", { endDate });
+      }
+
+      // Get total count
+      const total = await queryBuilder.getCount();
+
+      // Get paginated results
+      const jobs = await queryBuilder
+        .orderBy("job.createdAt", "DESC")
+        .skip((Number(page) - 1) * Number(limit))
+        .take(Number(limit))
+        .getMany();
+
+      res.json({
+        success: true,
+        data: {
+          jobs,
+          pagination: {
+            page: Number(page),
+            limit: Number(limit),
+            total,
+            pages: Math.ceil(total / Number(limit)),
+          },
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to get billing jobs", { error });
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to get billing jobs",
+      });
+    }
+  }
+);
+
+/**
+ * GET /dashboard/billing-jobs/:id - Get specific billing job details
+ */
+router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
   try {
-    const metrics = {
-      timestamp: new Date().toISOString(),
-      system: {
-        uptime: process.uptime(),
-        memoryUsage: process.memoryUsage(),
-        cpuUsage: 0,
-        nodeVersion: process.version,
-        platform: process.platform,
-      },
-      billing: {
-        totalJobs: 0,
-        successfulJobs: 0,
-        failedJobs: 0,
-        totalInvoices: 0,
-        totalRevenue: 0,
-      },
-      connections: {
-        qbo: "connected",
-        phoneSystem: "connected",
-        database: "connected",
-      },
-    };
+    const { id } = req.params;
+    const job = await getRepository(BillingJob).findOne({
+      where: { id },
+      relations: ["clientBillingResults"],
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: "Billing job not found",
+      });
+    }
 
     res.json({
       success: true,
-      data: metrics,
+      data: job,
     });
   } catch (error) {
-    logger.error("Failed to get system metrics", { error });
+    logger.error("Failed to get billing job details", {
+      error,
+      jobId: req.params.id,
+    });
     res.status(500).json({
       success: false,
-      error: "Failed to get system metrics",
+      error:
+        error instanceof Error ? error.message : "Failed to get job details",
     });
   }
 });
 
 /**
- * GET /dashboard/jobs - Get recent billing jobs
+ * POST /dashboard/billing-jobs/run - Run manual billing job
  */
-router.get("/jobs", async (req: Request, res: Response) => {
-  try {
-    const { limit = 10, status } = req.query;
+router.post(
+  "/billing-jobs/run",
+  [
+    query("startDate")
+      .isISO8601()
+      .withMessage("Start date must be a valid ISO date"),
+    query("endDate")
+      .isISO8601()
+      .withMessage("End date must be a valid ISO date"),
+    query("clientId")
+      .optional()
+      .isString()
+      .withMessage("Client ID must be a string"),
+    query("isDryRun")
+      .optional()
+      .isBoolean()
+      .withMessage("isDryRun must be a boolean"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
 
-    // This would fetch from database
-    // For now, return placeholder data
-    const jobs = [];
+      const { startDate, endDate, clientId, isDryRun = false } = req.query;
+
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+
+      // Validate date range
+      if (start >= end) {
+        return res.status(400).json({
+          success: false,
+          error: "Start date must be before end date",
+        });
+      }
+
+      const result = await jobScheduler.runManualBilling(
+        start,
+        end,
+        clientId as string,
+        isDryRun as boolean
+      );
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      logger.error("Failed to run manual billing job", { error });
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to run billing job",
+      });
+    }
+  }
+);
+
+/**
+ * GET /dashboard/system-status - Get comprehensive system status
+ */
+router.get("/system-status", async (req: Request, res: Response) => {
+  try {
+    const [qboStatus, genesysStatus, schedulerStatus] = await Promise.all([
+      qboService.getTokenStatus(),
+      genesysService.getStatus(),
+      jobScheduler.getStatus(),
+    ]);
+
+    // Test connections
+    const [qboConnected, genesysConnected] = await Promise.all([
+      qboService.testConnection().catch(() => false),
+      genesysService.testConnection().catch(() => false),
+    ]);
 
     res.json({
       success: true,
       data: {
-        jobs,
-        total: jobs.length,
-        pagination: {
-          limit: parseInt(limit as string),
-          page: 1,
-          pages: 1,
+        qbo: {
+          ...qboStatus,
+          connected: qboConnected,
+        },
+        genesys: {
+          ...genesysStatus,
+          connected: genesysConnected,
+        },
+        scheduler: schedulerStatus,
+        overall: {
+          healthy:
+            qboConnected &&
+            genesysConnected &&
+            schedulerStatus.billing.isSchedulerActive,
+          issues: [
+            !qboConnected && "QBO connection failed",
+            !genesysConnected && "Genesys connection failed",
+            !schedulerStatus.billing.isSchedulerActive &&
+              "Scheduler not active",
+          ].filter(Boolean),
         },
       },
     });
   } catch (error) {
-    logger.error("Failed to get recent jobs", { error });
+    logger.error("Failed to get system status", { error });
     res.status(500).json({
       success: false,
-      error: "Failed to get recent jobs",
+      error:
+        error instanceof Error ? error.message : "Failed to get system status",
     });
   }
 });
 
 /**
- * GET /dashboard/alerts - Get system alerts
+ * POST /dashboard/system-status/test - Test system connections
  */
-router.get("/alerts", async (req: Request, res: Response) => {
+router.post("/system-status/test", async (req: Request, res: Response) => {
   try {
-    // This would fetch from database or monitoring system
-    // For now, return placeholder data
-    const alerts = [];
+    const [qboTest, genesysTest, schedulerTest] = await Promise.all([
+      qboService.testConnection(),
+      genesysService.testConnection(),
+      jobScheduler.testBillingScheduler(),
+    ]);
 
     res.json({
       success: true,
       data: {
-        alerts,
-        total: alerts.length,
-        critical: alerts.filter((a: any) => a.severity === "critical").length,
-        warning: alerts.filter((a: any) => a.severity === "warning").length,
-        info: alerts.filter((a: any) => a.severity === "info").length,
+        qbo: qboTest,
+        genesys: genesysTest,
+        scheduler: schedulerTest,
+        overall: qboTest && genesysTest && schedulerTest,
       },
     });
   } catch (error) {
-    logger.error("Failed to get system alerts", { error });
+    logger.error("Failed to test system connections", { error });
     res.status(500).json({
       success: false,
-      error: "Failed to get system alerts",
+      error:
+        error instanceof Error ? error.message : "Failed to test connections",
     });
   }
 });
 
 /**
- * POST /dashboard/kill-switch - Toggle kill switch
+ * GET /dashboard/usage-summary - Get usage summary for dashboard
  */
-router.post("/kill-switch", async (req: Request, res: Response) => {
-  try {
-    const { enabled, reason } = req.body;
+router.get(
+  "/usage-summary",
+  [
+    query("days")
+      .optional()
+      .isInt({ min: 1, max: 365 })
+      .withMessage("Days must be between 1 and 365"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
 
-    if (typeof enabled !== "boolean") {
-      return res.status(400).json({
+      const days = Number(req.query.days) || 30;
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const usageSummary = await getRepository(PhoneUsage)
+        .createQueryBuilder("usage")
+        .select("DATE(usage.startedAt)", "date")
+        .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
+        .addSelect("COUNT(usage.id)", "totalCalls")
+        .addSelect("SUM(usage.amount)", "totalAmount")
+        .where("usage.startedAt >= :startDate", { startDate })
+        .groupBy("DATE(usage.startedAt)")
+        .orderBy("date", "ASC")
+        .getRawMany();
+
+      const clientSummary = await getRepository(PhoneUsage)
+        .createQueryBuilder("usage")
+        .select("usage.clientId", "clientId")
+        .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
+        .addSelect("COUNT(usage.id)", "totalCalls")
+        .addSelect("SUM(usage.amount)", "totalAmount")
+        .where("usage.startedAt >= :startDate", { startDate })
+        .groupBy("usage.clientId")
+        .orderBy("totalAmount", "DESC")
+        .limit(10)
+        .getRawMany();
+
+      res.json({
+        success: true,
+        data: {
+          period: {
+            startDate: startDate.toISOString(),
+            endDate: new Date().toISOString(),
+            days,
+          },
+          dailyUsage: usageSummary,
+          topClients: clientSummary,
+        },
+      });
+    } catch (error) {
+      logger.error("Failed to get usage summary", { error });
+      res.status(500).json({
         success: false,
-        error: "Enabled field must be a boolean",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to get usage summary",
       });
     }
-
-    // This would update the kill switch status
-    // For now, just return success
-    logger.info("Kill switch toggled", { enabled, reason });
-
-    res.json({
-      success: true,
-      message: `Kill switch ${enabled ? "enabled" : "disabled"}`,
-      data: {
-        enabled,
-        reason: reason || "",
-        timestamp: new Date().toISOString(),
-      },
-    });
-  } catch (error) {
-    logger.error("Failed to toggle kill switch", { error });
-    res.status(500).json({
-      success: false,
-      error: "Failed to toggle kill switch",
-    });
   }
-});
-
-/**
- * GET /dashboard/logs - Get recent system logs
- */
-router.get("/logs", async (req: Request, res: Response) => {
-  try {
-    const { level = "info", limit = 100 } = req.query;
-
-    // This would fetch from log files or database
-    // For now, return placeholder data
-    const logs = [];
-
-    res.json({
-      success: true,
-      data: {
-        logs,
-        total: logs.length,
-        level,
-        limit: parseInt(limit as string),
-      },
-    });
-  } catch (error) {
-    logger.error("Failed to get system logs", { error });
-    res.status(500).json({
-      success: false,
-      error: "Failed to get system logs",
-    });
-  }
-});
+);
 
 export { router as dashboardRoutes };
