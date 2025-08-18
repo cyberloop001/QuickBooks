@@ -49,7 +49,7 @@ router.get("/detailed", async (req: Request, res: Response) => {
       services: {
         database: "unknown",
         qbo: "unknown",
-        phoneSystem: "unknown",
+        genesys: "unknown",
       },
       config: {
         database: {
@@ -61,8 +61,8 @@ router.get("/detailed", async (req: Request, res: Response) => {
           environment: config.qbo.environment,
           clientId: config.qbo.clientId ? "configured" : "not configured",
         },
-        phoneSystem: {
-          baseUrl: config.phoneSystem.baseUrl ? "configured" : "not configured",
+        genesys: {
+          baseUrl: config.genesys.baseUrl ? "configured" : "not configured",
         },
       },
     };

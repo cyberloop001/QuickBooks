@@ -91,8 +91,8 @@ export const logQBOAction = (action: string, details: any) => {
   });
 };
 
-export const logPhoneSystemAction = (action: string, details: any) => {
-  logger.info("Phone system API action", {
+export const logGenesysAction = (action: string, details: any) => {
+  logger.info("Genesys Cloud API action", {
     action,
     ...details,
     timestamp: new Date().toISOString(),
@@ -100,7 +100,7 @@ export const logPhoneSystemAction = (action: string, details: any) => {
 };
 
 export const logQBOServiceAction = (action: string, details: any) => {
-  logger.info("QBO Service Action", {
+  logger.info("QBO service action", {
     action,
     ...details,
     timestamp: new Date().toISOString(),

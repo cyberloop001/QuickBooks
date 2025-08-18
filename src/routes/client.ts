@@ -56,7 +56,7 @@ router.get(
         data: {
           id,
           name: "Sample Client",
-          phoneSystemClientId: "PS-1001",
+          genesysClientId: "GC-1001",
           qboCustomerId: "QBO_CUSTOMER_ID",
         },
       });
@@ -77,7 +77,7 @@ router.post(
   "/",
   [
     body("name").isString().notEmpty(),
-    body("phoneSystemClientId").isString().notEmpty(),
+    body("genesysClientId").isString().notEmpty(),
     body("qboCustomerId").optional().isString(),
     body("email").optional().isEmail(),
     body("phone").optional().isString(),

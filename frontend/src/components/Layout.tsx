@@ -10,6 +10,7 @@ import {
   LogOut,
   Bell,
   Database,
+  Phone,
 } from "lucide-react";
 import { useAuthStore } from "../stores/authStore";
 
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Billing Jobs", href: "/billing", icon: CreditCard },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "QBO Setup", href: "/qbo-setup", icon: Database },
+  { name: "Genesys Cloud", href: "/genesys", icon: Phone },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

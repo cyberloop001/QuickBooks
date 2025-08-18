@@ -15,7 +15,7 @@ export class Client {
   id!: string;
 
   @Column({ unique: true })
-  phoneSystemClientId!: string;
+  genesysClientId!: string;
 
   @Column({ unique: true, nullable: true })
   qboCustomerId!: string;
@@ -66,9 +66,6 @@ export class Client {
   @OneToMany(() => PhoneUsage, (usage) => usage.client)
   phoneUsages!: PhoneUsage[];
 
-  @OneToMany(() => BillingJob, (job) => job.client)
-  billingJobs!: BillingJob[];
-
   // Helper methods
   getFullAddress(): string {
     const parts = [
@@ -82,6 +79,6 @@ export class Client {
   }
 
   getDisplayName(): string {
-    return this.name || this.phoneSystemClientId;
+    return this.name || this.genesysClientId;
   }
 }

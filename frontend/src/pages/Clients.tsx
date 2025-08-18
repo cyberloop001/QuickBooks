@@ -1,18 +1,11 @@
 import { useState, useEffect } from "react";
-import {
-  Plus,
-  Edit,
-  Trash2,
-  Search,
-  Phone,
-  Building,
-} from "lucide-react";
+import { Plus, Edit, Trash2, Search, Phone, Building } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Client {
   id: string;
   name: string;
-  phoneSystemClientId: string;
+  genesysClientId: string;
   qboCustomerId: string;
   email: string;
   phone: string;
@@ -43,7 +36,7 @@ export function Clients() {
         {
           id: "1",
           name: "Acme Corporation",
-          phoneSystemClientId: "PS-1001",
+          genesysClientId: "GC-1001",
           qboCustomerId: "QBO-001",
           email: "billing@acme.com",
           phone: "(555) 123-4567",
@@ -58,7 +51,7 @@ export function Clients() {
         {
           id: "2",
           name: "TechStart Inc",
-          phoneSystemClientId: "PS-1002",
+          genesysClientId: "GC-1002",
           qboCustomerId: "QBO-002",
           email: "accounts@techstart.com",
           phone: "(555) 234-5678",
@@ -122,9 +115,7 @@ export function Clients() {
   const filteredClients = clients.filter(
     (client) =>
       client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.phoneSystemClientId
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
+      client.genesysClientId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       client.qboCustomerId.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -219,7 +210,7 @@ export function Clients() {
                     <div className="flex items-center">
                       <Phone className="h-4 w-4 text-gray-400 mr-2" />
                       <span className="text-sm text-gray-900">
-                        {client.phoneSystemClientId}
+                        {client.genesysClientId}
                       </span>
                     </div>
                   </td>
@@ -293,7 +284,7 @@ interface ClientModalProps {
 function ClientModal({ client, onSave, onCancel }: ClientModalProps) {
   const [formData, setFormData] = useState({
     name: client?.name || "",
-    phoneSystemClientId: client?.phoneSystemClientId || "",
+    genesysClientId: client?.genesysClientId || "",
     qboCustomerId: client?.qboCustomerId || "",
     email: client?.email || "",
     phone: client?.phone || "",
@@ -339,11 +330,11 @@ function ClientModal({ client, onSave, onCancel }: ClientModalProps) {
                 </label>
                 <input
                   type="text"
-                  value={formData.phoneSystemClientId}
+                  value={formData.genesysClientId}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      phoneSystemClientId: e.target.value,
+                      genesysClientId: e.target.value,
                     })
                   }
                   required

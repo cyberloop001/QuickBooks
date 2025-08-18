@@ -180,7 +180,7 @@ export function Settings() {
               </label>
               <input
                 type="url"
-                placeholder="https://api.phonesystem.com"
+                placeholder="https://api.mypurecloud.com"
                 className="input mt-1"
                 disabled
               />

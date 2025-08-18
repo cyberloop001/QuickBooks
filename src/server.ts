@@ -10,7 +10,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { killSwitchMiddleware } from "./middleware/killSwitch";
 import { setupRoutes } from "./routes";
-import { setupScheduledJobs } from "./jobs/scheduler";
+import { JobScheduler } from "./jobs/scheduler";
 import { config } from "./config";
 
 // Load environment variables
@@ -104,7 +104,8 @@ async function startServer() {
     logger.info("Database connection established");
 
     // Setup scheduled jobs
-    await setupScheduledJobs();
+    const jobScheduler = new JobScheduler();
+    await jobScheduler.setupScheduledJobs();
 
     // Start server
     app.listen(PORT, () => {
