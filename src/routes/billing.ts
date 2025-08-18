@@ -1,13 +1,14 @@
 import { Router, Request, Response } from "express";
 import { body, param, query, validationResult } from "express-validator";
 import { BillingService } from "../services/BillingService";
-import { jobScheduler } from "../jobs/scheduler";
+import { JobScheduler } from "../jobs/scheduler";
 import { logger } from "../utils/logger";
 import moment from "moment-timezone";
 import { config } from "../config";
 
 const router = Router();
 const billingService = new BillingService();
+const jobScheduler = new JobScheduler();
 
 /**
  * GET /billing/jobs - Get all billing jobs
@@ -152,16 +153,28 @@ router.post(
 
       const { year, month, clientId, isDryRun = false } = req.body;
 
+      // Calculate start and end dates for the month
+      const startDate = moment
+        .tz([year, month - 1, 1], config.billing.timezone)
+        .startOf("month")
+        .toDate();
+      const endDate = moment
+        .tz([year, month - 1, 1], config.billing.timezone)
+        .endOf("month")
+        .toDate();
+
       logger.info("Monthly billing job requested", {
         year,
         month,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
         clientId,
         isDryRun,
       });
 
-      const result = await jobScheduler.runBillingJobForPeriod(
-        year,
-        month,
+      const result = await jobScheduler.runManualBilling(
+        startDate,
+        endDate,
         clientId,
         isDryRun
       );
@@ -376,14 +389,14 @@ router.get(
  */
 router.get("/status", async (req: Request, res: Response) => {
   try {
-    const schedulerStatus = jobScheduler.getJobStatus();
+    const schedulerStatus = jobScheduler.getStatus();
 
     res.json({
       success: true,
       data: {
         scheduler: schedulerStatus,
         lastRun: new Date().toISOString(),
-        nextRun: schedulerStatus.nextRun,
+        nextRun: schedulerStatus.billing.nextRun,
         timezone: config.billing.timezone,
       },
     });
