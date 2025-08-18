@@ -1,377 +1,451 @@
-# Phone Billing System - Deployment Guide
+# QuickBooks Phone Billing System - Production Deployment Guide
 
-## 🚀 Quick Start
+## 🚀 **Overview**
 
-### 1. Prerequisites
+This guide covers deploying the QuickBooks Phone Billing System to production. The system is a Node.js/TypeScript application that automates phone usage billing by integrating with QuickBooks Online and Genesys Cloud.
 
-- Node.js 18+ installed
-- PostgreSQL 12+ running
-- QuickBooks Online Developer account
-- Phone system API access
+## 📋 **Prerequisites**
 
-### 2. Installation
+- Node.js 18+ and npm
+- PostgreSQL 13+
+- Redis (optional, for caching)
+- ngrok or similar for webhook testing
+- QuickBooks Online Developer Account
+- Genesys Cloud Account with API access
+
+## 🏗️ **Architecture**
+
+```
+Frontend (React) → Backend (Node.js/Express) → Database (PostgreSQL)
+                              ↓
+                    QuickBooks Online API
+                    Genesys Cloud API
+```
+
+## 🔧 **Installation & Setup**
+
+### 1. Clone and Install Dependencies
 
 ```bash
-# Clone and setup
 git clone <repository-url>
-cd phone-billing-system
+cd QuickBooks
 npm install
-npm run build
+```
 
-# Environment configuration
+### 2. Environment Configuration
+
+Copy the example environment file and configure:
+
+```bash
 cp env.example .env
-# Edit .env with your credentials
+```
+
+Configure the following environment variables:
+
+```env
+# Server Configuration
+NODE_ENV=production
+PORT=3000
+LOG_LEVEL=info
+
+# Database Configuration
+DB_HOST=your-postgres-host
+DB_PORT=5432
+DB_USER=your-db-user
+DB_PASSWORD=your-db-password
+DB_NAME=your-db-name
+DB_SSL=true
+
+# QuickBooks Online Configuration
+QBO_CLIENT_ID=your-qbo-client-id
+QBO_CLIENT_SECRET=your-qbo-client-secret
+QBO_ENVIRONMENT=production
+QBO_REDIRECT_URI=https://your-domain.com/qbo-callback
+
+# Genesys Cloud Configuration
+GENESYS_BASE_URL=https://api.mypurecloud.com
+GENESYS_CLIENT_ID=your-genesys-client-id
+GENESYS_CLIENT_SECRET=your-genesys-client-secret
+GENESYS_ORGANIZATION_ID=your-org-id
+
+# Billing Configuration
+BILLING_TIMEZONE=America/Los_Angeles
+BILLING_RATE_PER_MINUTE=0.15
+BILLING_CURRENCY=USD
+
+# Security
+JWT_SECRET=your-jwt-secret
+SESSION_SECRET=your-session-secret
+
+# Logging
+LOG_FILE_PATH=./logs
+LOG_MAX_SIZE=20m
+LOG_MAX_FILES=14
 ```
 
 ### 3. Database Setup
 
-```bash
-# Create database
-createdb phone_billing
+Create the PostgreSQL database:
 
-# Run migrations (development mode)
-npm run db:migrate
+```sql
+CREATE DATABASE phone_billing_system;
+CREATE USER billing_user WITH PASSWORD 'secure_password';
+GRANT ALL PRIVILEGES ON DATABASE phone_billing_system TO billing_user;
 ```
 
-### 4. Start the System
+The application will automatically create tables on first run (with `synchronize: true` in development).
+
+### 4. Build the Application
 
 ```bash
-# Development mode
-npm run dev
-
-# Production mode
-npm start
+npm run build
 ```
 
-## 📊 Testing the System
+## 🚀 **Deployment Options**
 
-### Test CSV Processing
+### Option 1: Docker Deployment
 
-```bash
-# Run the test script
-node test-csv.js
+Create a `Dockerfile`:
 
-# Or use the billing job runner
-npm run billing:run --csv-file ./test-data.csv --output-file ./results.json
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY dist/ ./dist/
+COPY .env ./
+
+EXPOSE 3000
+
+CMD ["node", "dist/server.js"]
 ```
 
-### Test API Endpoints
+Build and run:
 
 ```bash
-# Health check
-curl http://localhost:3001/health
-
-# System overview
-curl http://localhost:3001/api/v1/dashboard/overview
-
-# Billing status
-curl http://localhost:3001/api/v1/billing/status
-```
-
-## 🔐 QuickBooks Online Setup
-
-### 1. Create QBO App
-
-1. Go to [QBO Developer Portal](https://developer.intuit.com/)
-2. Create new app
-3. Set OAuth2 redirect URI: `http://localhost:3001/api/v1/qbo/auth/callback`
-4. Note Client ID and Secret
-
-### 2. Configure Environment
-
-```bash
-QBO_CLIENT_ID=your_client_id
-QBO_CLIENT_SECRET=your_client_secret
-QBO_REDIRECT_URI=http://localhost:3001/api/v1/qbo/auth/callback
-QBO_ENVIRONMENT=sandbox
-QBO_ACCOUNT_ID=your_qbo_account_id
-```
-
-### 3. Authorize Access
-
-```bash
-# Get authorization URL
-curl http://localhost:3001/api/v1/qbo/auth
-
-# Complete OAuth flow in browser
-# Store returned tokens securely
-```
-
-## 🗄️ Database Configuration
-
-### PostgreSQL Setup
-
-```bash
-# Install PostgreSQL
-sudo apt-get install postgresql postgresql-contrib
-
-# Create user and database
-sudo -u postgres createuser --interactive
-sudo -u postgres createdb phone_billing
-
-# Configure .env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=phone_billing
-DB_USER=your_username
-DB_PASSWORD=your_password
-DB_SSL=false
-```
-
-### Database Schema
-
-The system automatically creates tables using TypeORM:
-
-- `clients` - Client mapping table
-- `phone_usage` - Usage records
-- `billing_jobs` - Job tracking
-
-## 📱 Phone System Integration
-
-### API Configuration
-
-```bash
-PHONE_API_BASE_URL=https://api.phonesystem.com
-PHONE_API_KEY=your_api_key
-PHONE_API_SECRET=your_api_secret
-```
-
-### Test Connection
-
-```bash
-curl http://localhost:3001/api/v1/phone-system/connection/test
-```
-
-## 🧪 Running Billing Jobs
-
-### Manual Billing
-
-```bash
-# Run for previous month
-npm run billing:run
-
-# Run for specific period
-npm run billing:run --start-date 2025-07-01 --end-date 2025-07-31
-
-# Dry run (no invoices)
-npm run billing:run --dry-run
-
-# Specific client
-npm run billing:run --client-id PS-1001
-```
-
-### CSV Processing
-
-```bash
-# Process CSV file
-npm run billing:run --csv-file ./usage.csv --output-file ./results.json
-
-# The system will:
-# 1. Parse CSV data
-# 2. Filter by date range
-# 3. Aggregate by client
-# 4. Generate invoice payloads
-# 5. Save results to JSON
-```
-
-## 📊 Monitoring & Dashboard
-
-### Health Checks
-
-- `/health` - Basic health
-- `/health/detailed` - Comprehensive status
-- `/health/ready` - Readiness probe
-- `/health/live` - Liveness probe
-
-### Dashboard Endpoints
-
-- `/api/v1/dashboard/overview` - System overview
-- `/api/v1/dashboard/metrics` - Performance metrics
-- `/api/v1/dashboard/jobs` - Recent billing jobs
-- `/api/v1/dashboard/alerts` - System alerts
-
-### Kill Switch
-
-```bash
-# Enable emergency shutdown
-curl -X POST http://localhost:3001/api/v1/dashboard/kill-switch \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true, "reason": "Emergency maintenance"}'
-
-# Disable
-curl -X POST http://localhost:3001/api/v1/dashboard/kill-switch \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
-```
-
-## 🐳 Docker Deployment
-
-### Build and Run
-
-```bash
-# Build image
 docker build -t phone-billing-system .
-
-# Run with Docker Compose
-docker-compose up -d
-
-# Check status
-docker-compose ps
-
-# View logs
-docker-compose logs -f app
+docker run -p 3000:3000 --env-file .env phone-billing-system
 ```
 
-### Environment Variables
+### Option 2: PM2 Deployment
+
+Install PM2 globally:
 
 ```bash
-# Create .env file for Docker
-cp env.example .env
-# Edit with production values
-
-# Or set environment variables
-docker run -e NODE_ENV=production -e DB_HOST=host.docker.internal phone-billing-system
+npm install -g pm2
 ```
 
-## 🔒 Production Security
+Create ecosystem file (`ecosystem.config.js`):
 
-### Environment Variables
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: "phone-billing-system",
+      script: "dist/server.js",
+      instances: "max",
+      exec_mode: "cluster",
+      env: {
+        NODE_ENV: "production",
+      },
+      env_file: ".env",
+      log_file: "./logs/combined.log",
+      out_file: "./logs/out.log",
+      error_file: "./logs/error.log",
+      time: true,
+    },
+  ],
+};
+```
+
+Start with PM2:
 
 ```bash
-NODE_ENV=production
-JWT_SECRET=your_super_secure_jwt_secret
-KILL_SWITCH_ENABLED=false
-LOG_LEVEL=info
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
 ```
 
-### SSL/TLS Configuration
+### Option 3: Systemd Service
+
+Create `/etc/systemd/system/phone-billing.service`:
+
+```ini
+[Unit]
+Description=Phone Billing System
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=billing
+WorkingDirectory=/opt/phone-billing-system
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
 
 ```bash
-# Use reverse proxy (nginx) for SSL termination
-# Configure firewall rules
-# Set up monitoring and alerting
+sudo systemctl enable phone-billing
+sudo systemctl start phone-billing
 ```
 
-### Database Security
+## 🔐 **Security Configuration**
+
+### 1. SSL/TLS Setup
+
+Use a reverse proxy (nginx) with Let's Encrypt:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+### 2. Firewall Configuration
 
 ```bash
-# Use connection pooling
-# Enable SSL connections
-# Set up backup strategy
-# Configure access controls
+# Allow only necessary ports
+sudo ufw allow 22    # SSH
+sudo ufw allow 80    # HTTP
+sudo ufw allow 443   # HTTPS
+sudo ufw enable
 ```
 
-## 📝 Logging & Monitoring
+### 3. Database Security
 
-### Log Files
+```sql
+-- Restrict database access
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+GRANT CONNECT ON DATABASE phone_billing_system TO billing_user;
+GRANT USAGE ON SCHEMA public TO billing_user;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO billing_user;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO billing_user;
+```
+
+## 📊 **Monitoring & Logging**
+
+### 1. Application Monitoring
+
+The system includes built-in health checks:
 
 ```bash
-# View logs
-tail -f logs/combined-$(date +%Y-%m-%d).log
-tail -f logs/error-$(date +%Y-%m-%d).log
-
-# Log rotation is automatic
-# Logs are kept for 14 days by default
+curl https://your-domain.com/health
+curl https://your-domain.com/api/v1/dashboard/system-status
 ```
 
-### Monitoring
+### 2. Log Management
+
+Logs are automatically rotated and stored in `./logs/`:
+
+- `combined-YYYY-MM-DD.log` - All logs
+- `error-YYYY-MM-DD.log` - Error logs only
+
+### 3. System Monitoring
+
+Monitor system resources:
 
 ```bash
-# System metrics
-curl http://localhost:3001/api/v1/dashboard/metrics
+# CPU and Memory
+htop
 
-# Recent jobs
-curl http://localhost:3001/api/v1/dashboard/jobs
+# Disk usage
+df -h
 
-# Billing summary
-curl http://localhost:3001/api/v1/billing/summary
+# Log file sizes
+du -sh logs/*
+
+# Database connections
+psql -c "SELECT count(*) FROM pg_stat_activity;"
 ```
 
-## 🚨 Troubleshooting
+## 🔄 **Scheduled Jobs**
+
+The system automatically runs monthly billing jobs:
+
+- **Schedule**: 1st of each month at 2:00 AM PST
+- **Timezone**: Configurable via `BILLING_TIMEZONE`
+- **Monitoring**: Check `/api/v1/dashboard/system-status`
+
+### Manual Job Execution
+
+```bash
+# Test billing job (dry run)
+curl -X POST "https://your-domain.com/api/v1/dashboard/billing-jobs/run?startDate=2025-01-01&endDate=2025-01-31&isDryRun=true"
+
+# Run actual billing job
+curl -X POST "https://your-domain.com/api/v1/dashboard/billing-jobs/run?startDate=2025-01-01&endDate=2025-01-31"
+```
+
+## 🚨 **Troubleshooting**
 
 ### Common Issues
 
 1. **Database Connection Failed**
 
-   ```bash
-   # Check PostgreSQL service
-   sudo systemctl status postgresql
-
-   # Test connection
-   psql -h localhost -U your_username -d phone_billing
-   ```
+   - Check database credentials and network connectivity
+   - Verify PostgreSQL is running
+   - Check firewall settings
 
 2. **QBO Authentication Failed**
 
-   ```bash
-   # Check environment variables
-   echo $QBO_CLIENT_ID
-   echo $QBO_CLIENT_SECRET
+   - Verify OAuth credentials
+   - Check redirect URI configuration
+   - Ensure tokens are valid
 
-   # Test connection
-   curl http://localhost:3001/api/v1/qbo/connection/test
-   ```
+3. **Genesys API Errors**
 
-3. **Phone System API Errors**
+   - Verify API credentials
+   - Check rate limits
+   - Ensure proper permissions
 
-   ```bash
-   # Test connection
-   curl http://localhost:3001/api/v1/phone-system/connection/test
-
-   # Check API credentials
-   echo $PHONE_API_KEY
-   ```
+4. **Scheduled Jobs Not Running**
+   - Check system timezone
+   - Verify cron job is active
+   - Check application logs
 
 ### Debug Mode
 
-```bash
-# Enable debug logging
-LOG_LEVEL=debug npm start
+Enable debug logging by setting:
 
-# Check application logs
-tail -f logs/combined-$(date +%Y-%m-%d).log
+```env
+LOG_LEVEL=debug
+NODE_ENV=development
 ```
 
-## 📋 Production Checklist
-
-- [ ] Set `NODE_ENV=production`
-- [ ] Configure production database
-- [ ] Set secure `JWT_SECRET`
-- [ ] Configure SSL/TLS
-- [ ] Set up monitoring and alerting
-- [ ] Configure log aggregation
-- [ ] Set up backup strategy
-- [ ] Test kill switch functionality
-- [ ] Verify idempotency
-- [ ] Test QBO sandbox integration
-- [ ] Configure rate limiting
-- [ ] Set up health checks
-- [ ] Test CSV processing
-- [ ] Verify timezone handling
-
-## 🔄 Maintenance
-
-### Regular Tasks
+### Health Check Endpoints
 
 ```bash
-# Check system health
-curl http://localhost:3001/health
+# System health
+GET /health
 
-# Monitor billing jobs
-curl http://localhost:3001/api/v1/billing/jobs
+# API health
+GET /api/v1/health
 
-# Review logs
-tail -f logs/combined-$(date +%Y-%m-%d).log
+# System status
+GET /api/v1/dashboard/system-status
 
 # Test connections
-curl http://localhost:3001/api/v1/qbo/connection/test
-curl http://localhost:3001/api/v1/phone-system/connection/test
+POST /api/v1/dashboard/system-status/test
 ```
 
-### Updates
+## 📈 **Performance Optimization**
+
+### 1. Database Optimization
+
+```sql
+-- Create indexes for common queries
+CREATE INDEX idx_billing_jobs_status ON billing_jobs(status);
+CREATE INDEX idx_billing_jobs_created_at ON billing_jobs(created_at);
+CREATE INDEX idx_phone_usage_client_id ON phone_usage(client_id);
+CREATE INDEX idx_phone_usage_started_at ON phone_usage(started_at);
+```
+
+### 2. Application Optimization
+
+- Use PM2 cluster mode for multiple processes
+- Implement Redis caching for frequently accessed data
+- Use database connection pooling
+- Monitor memory usage and implement garbage collection
+
+### 3. Monitoring Setup
+
+Consider implementing:
+
+- Prometheus + Grafana for metrics
+- ELK stack for log aggregation
+- Uptime monitoring (UptimeRobot, Pingdom)
+- Error tracking (Sentry)
+
+## 🔄 **Backup & Recovery**
+
+### 1. Database Backups
 
 ```bash
-# Pull latest code
+# Daily backup script
+#!/bin/bash
+BACKUP_DIR="/backups/database"
+DATE=$(date +%Y%m%d_%H%M%S)
+pg_dump -h localhost -U billing_user phone_billing_system > "$BACKUP_DIR/backup_$DATE.sql"
+
+# Keep backups for 30 days
+find $BACKUP_DIR -name "backup_*.sql" -mtime +30 -delete
+```
+
+### 2. Application Backups
+
+```bash
+# Backup application files
+tar -czf "/backups/app/app_$DATE.tar.gz" /opt/phone-billing-system
+
+# Backup logs
+tar -czf "/backups/logs/logs_$DATE.tar.gz" /opt/phone-billing-system/logs
+```
+
+### 3. Recovery Procedures
+
+1. **Database Recovery**
+
+   ```bash
+   psql -h localhost -U billing_user phone_billing_system < backup_YYYYMMDD_HHMMSS.sql
+   ```
+
+2. **Application Recovery**
+   ```bash
+   tar -xzf app_YYYYMMDD_HHMMSS.tar.gz -C /opt/
+   npm install
+   npm run build
+   ```
+
+## 📚 **Maintenance**
+
+### 1. Regular Tasks
+
+- **Daily**: Check application logs and health status
+- **Weekly**: Review billing job results and error logs
+- **Monthly**: Update dependencies and security patches
+- **Quarterly**: Review and optimize database performance
+
+### 2. Update Procedures
+
+```bash
+# Stop application
+pm2 stop phone-billing-system
+
+# Backup current version
+cp -r /opt/phone-billing-system /opt/phone-billing-system.backup
+
+# Update code
 git pull origin main
 
 # Install dependencies
@@ -380,29 +454,27 @@ npm install
 # Build application
 npm run build
 
-# Restart service
-# (depends on your deployment method)
+# Start application
+pm2 start phone-billing-system
+
+# Verify health
+curl https://your-domain.com/health
 ```
 
-## 📞 Support
+## 🆘 **Support & Contact**
 
-For issues and questions:
+For technical support:
 
-1. Check the logs for error details
-2. Review the troubleshooting section
+1. Check application logs first
+2. Review this deployment guide
 3. Check system health endpoints
-4. Create an issue in the repository
-5. Contact the development team
+4. Contact development team with error details
 
-## 🎯 Next Steps
+## 📝 **Changelog**
 
-After successful deployment:
-
-1. **Test CSV Processing**: Run with sample data
-2. **Configure QBO**: Complete OAuth setup
-3. **Set up Phone System**: Configure API credentials
-4. **Test Billing**: Run dry-run billing jobs
-5. **Monitor System**: Set up monitoring and alerts
-6. **Production Deployment**: Deploy to production environment
-7. **User Training**: Train operations team
-8. **Go Live**: Enable automated billing
+- **v1.0.0**: Initial production release
+- Complete QBO integration
+- Genesys Cloud phone system integration
+- Automated billing scheduler
+- Comprehensive dashboard
+- Production-ready deployment guide
