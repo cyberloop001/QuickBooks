@@ -273,9 +273,20 @@ export class GenesysService {
   }
 
   /**
-   * Get users (agents) from Genesys Cloud
+   * Get users from Genesys Cloud with pagination
    */
-  async getUsers(): Promise<GenesysUser[]> {
+  async getUsers(
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{
+    users: GenesysUser[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  }> {
     if (!this.api) {
       throw new Error("API client not initialized");
     }
@@ -283,31 +294,57 @@ export class GenesysService {
     try {
       await this.ensureValidToken();
 
-      const response = await this.api.get("/api/v2/users", {
+      // First, get total count by fetching all users (Genesys doesn't provide total count in a single request)
+      const allUsersResponse = await this.api.get("/api/v2/users", {
         params: {
-          pageSize: 100,
+          pageSize: 1000, // Large page size to get all users for counting
           pageNumber: 1,
         },
       });
 
-      const users: GenesysUser[] = response.data.entities.map((user: any) => ({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        division: {
-          id: user.division.id,
-          name: user.division.name,
-        },
-        department: user.department?.name,
-        title: user.title,
-      }));
+      const allUsers: GenesysUser[] = allUsersResponse.data.entities.map(
+        (user: any) => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          division: {
+            id: user.division.id,
+            name: user.division.name,
+          },
+          department: user.department?.name,
+          title: user.title,
+        })
+      );
+
+      const total = allUsers.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedUsers = allUsers.slice(startIndex, endIndex);
 
       logger.info("Retrieved users from Genesys Cloud", {
-        count: users.length,
+        count: paginatedUsers.length,
+        total,
+        page,
+        limit,
       });
-      logGenesysAction("get_users", { success: true, count: users.length });
+      logGenesysAction("get_users", {
+        success: true,
+        count: paginatedUsers.length,
+        total,
+        page,
+        limit,
+      });
 
-      return users;
+      return {
+        users: paginatedUsers,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: totalPages,
+        },
+      };
     } catch (error) {
       logger.error("Failed to get users from Genesys Cloud", { error });
       logGenesysAction("get_users", {
@@ -323,9 +360,20 @@ export class GenesysService {
   }
 
   /**
-   * Get queues from Genesys Cloud
+   * Get queues from Genesys Cloud with pagination
    */
-  async getQueues(): Promise<GenesysQueue[]> {
+  async getQueues(
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{
+    queues: GenesysQueue[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  }> {
     if (!this.api) {
       throw new Error("API client not initialized");
     }
@@ -333,14 +381,15 @@ export class GenesysService {
     try {
       await this.ensureValidToken();
 
-      const response = await this.api.get("/api/v2/routing/queues", {
+      // First, get total count by fetching all queues (Genesys doesn't provide total count in a single request)
+      const allQueuesResponse = await this.api.get("/api/v2/routing/queues", {
         params: {
-          pageSize: 100,
+          pageSize: 1000, // Large page size to get all queues for counting
           pageNumber: 1,
         },
       });
 
-      const queues: GenesysQueue[] = response.data.entities.map(
+      const allQueues: GenesysQueue[] = allQueuesResponse.data.entities.map(
         (queue: any) => ({
           id: queue.id,
           name: queue.name,
@@ -352,12 +401,35 @@ export class GenesysService {
         })
       );
 
-      logger.info("Retrieved queues from Genesys Cloud", {
-        count: queues.length,
-      });
-      logGenesysAction("get_queues", { success: true, count: queues.length });
+      const total = allQueues.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedQueues = allQueues.slice(startIndex, endIndex);
 
-      return queues;
+      logger.info("Retrieved queues from Genesys Cloud", {
+        count: paginatedQueues.length,
+        total,
+        page,
+        limit,
+      });
+      logGenesysAction("get_queues", {
+        success: true,
+        count: paginatedQueues.length,
+        total,
+        page,
+        limit,
+      });
+
+      return {
+        queues: paginatedQueues,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: totalPages,
+        },
+      };
     } catch (error) {
       logger.error("Failed to get queues from Genesys Cloud", { error });
       logGenesysAction("get_queues", {
@@ -446,8 +518,8 @@ export class GenesysService {
   async testConnection(): Promise<boolean> {
     try {
       await this.authenticate();
-      const users = await this.getUsers();
-      return users.length > 0;
+      const result = await this.getUsers(1, 1); // Just get 1 user to test connection
+      return result.users.length > 0;
     } catch (error) {
       logger.error("Genesys Cloud connection test failed", { error });
       return false;

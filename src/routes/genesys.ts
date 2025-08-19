@@ -55,42 +55,94 @@ router.post("/test-connection", async (req: Request, res: Response) => {
 /**
  * GET /genesys/users - Get users (agents) from Genesys Cloud
  */
-router.get("/users", async (req: Request, res: Response) => {
-  try {
-    const users = await genesysService.getUsers();
+router.get(
+  "/users",
+  [
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
 
-    res.json({
-      success: true,
-      data: users,
-    });
-  } catch (error) {
-    logger.error("Failed to get Genesys Cloud users", { error });
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to get users",
-    });
+      const { page = 1, limit = 20 } = req.query;
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+
+      const result = await genesysService.getUsers(pageNum, limitNum);
+
+      res.json({
+        success: true,
+        data: result.users,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error("Failed to get Genesys Cloud users", { error });
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get users",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /genesys/queues - Get queues from Genesys Cloud
  */
-router.get("/queues", async (req: Request, res: Response) => {
-  try {
-    const queues = await genesysService.getQueues();
+router.get(
+  "/queues",
+  [
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
 
-    res.json({
-      success: true,
-      data: queues,
-    });
-  } catch (error) {
-    logger.error("Failed to get Genesys Cloud queues", { error });
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to get queues",
-    });
+      const { page = 1, limit = 20 } = req.query;
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+
+      const result = await genesysService.getQueues(pageNum, limitNum);
+
+      res.json({
+        success: true,
+        data: result.queues,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error("Failed to get Genesys Cloud queues", { error });
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get queues",
+      });
+    }
   }
-});
+);
 
 /**
  * GET /genesys/call-records - Get call detail records from Genesys Cloud
