@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { format } from "date-fns";
+import Pagination from "../components/Pagination";
 
 interface GenesysStatus {
   isConnected: boolean;
@@ -69,11 +70,53 @@ export function GenesysIntegration() {
   );
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
+  // Pagination state
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersLimit, setUsersLimit] = useState(20);
+  const [usersPagination, setUsersPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 0,
+  });
+
+  const [queuesPage, setQueuesPage] = useState(1);
+  const [queuesLimit, setQueuesLimit] = useState(20);
+  const [queuesPagination, setQueuesPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 0,
+  });
+
+  // Loading states for individual tabs
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [queuesLoading, setQueuesLoading] = useState(false);
+
   useEffect(() => {
     fetchStatus();
-    fetchUsers();
-    fetchQueues();
-  }, []);
+    fetchUsers(usersPage, usersLimit);
+    fetchQueues(queuesPage, queuesLimit);
+  }, [usersPage, usersLimit, queuesPage, queuesLimit]);
+
+  // Pagination handlers
+  const handleUsersPageChange = (page: number) => {
+    setUsersPage(page);
+  };
+
+  const handleUsersLimitChange = (limit: number) => {
+    setUsersLimit(limit);
+    setUsersPage(1); // Reset to first page when changing limit
+  };
+
+  const handleQueuesPageChange = (page: number) => {
+    setQueuesPage(page);
+  };
+
+  const handleQueuesLimitChange = (limit: number) => {
+    setQueuesLimit(limit);
+    setQueuesPage(1); // Reset to first page when changing limit
+  };
 
   const fetchStatus = async () => {
     try {
@@ -108,27 +151,49 @@ export function GenesysIntegration() {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (page = usersPage, limit = usersLimit) => {
+    setUsersLoading(true);
     try {
-      const response = await fetch("/api/v1/genesys/users");
+      const response = await fetch(
+        `/api/v1/genesys/users?page=${page}&limit=${limit}`
+      );
       const data = await response.json();
       if (data.success) {
         setUsers(data.data);
+        if (data.pagination) {
+          setUsersPagination(data.pagination);
+        }
+      } else {
+        toast.error(data.error || "Failed to fetch users");
       }
     } catch (error) {
       console.error("Failed to fetch users:", error);
+      toast.error("Failed to fetch users");
+    } finally {
+      setUsersLoading(false);
     }
   };
 
-  const fetchQueues = async () => {
+  const fetchQueues = async (page = queuesPage, limit = queuesLimit) => {
+    setQueuesLoading(true);
     try {
-      const response = await fetch("/api/v1/genesys/queues");
+      const response = await fetch(
+        `/api/v1/genesys/queues?page=${page}&limit=${limit}`
+      );
       const data = await response.json();
       if (data.success) {
         setQueues(data.data);
+        if (data.pagination) {
+          setQueuesPagination(data.pagination);
+        }
+      } else {
+        toast.error(data.error || "Failed to fetch queues");
       }
     } catch (error) {
       console.error("Failed to fetch queues:", error);
+      toast.error("Failed to fetch queues");
+    } finally {
+      setQueuesLoading(false);
     }
   };
 
@@ -241,7 +306,7 @@ export function GenesysIntegration() {
             <UsersIcon className="h-4 w-4 text-gray-500" />
           </div>
           <div className="pt-4">
-            <div className="text-2xl font-bold">{users.length}</div>
+            <div className="text-2xl font-bold">{usersPagination.total}</div>
             <p className="text-xs text-gray-500">Active agents</p>
           </div>
         </div>
@@ -252,7 +317,7 @@ export function GenesysIntegration() {
             <BarChart3Icon className="h-4 w-4 text-gray-500" />
           </div>
           <div className="pt-4">
-            <div className="text-2xl font-bold">{queues.length}</div>
+            <div className="text-2xl font-bold">{queuesPagination.total}</div>
             <p className="text-xs text-gray-500">Routing queues</p>
           </div>
         </div>
@@ -333,55 +398,119 @@ export function GenesysIntegration() {
 
         {activeTab === "users" && (
           <div className="bg-white p-6 rounded-lg shadow border">
-            <h3 className="text-lg font-medium mb-4">Users (Agents)</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium">Users (Agents)</h3>
+              <button
+                onClick={() => fetchUsers(usersPage, usersLimit)}
+                disabled={usersLoading}
+                className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
+              >
+                {usersLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
             <div className="space-y-4">
-              {users.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex items-center justify-between p-4 border rounded-lg"
-                >
-                  <div>
-                    <h3 className="font-medium">{user.name}</h3>
-                    <p className="text-sm text-gray-600">{user.email}</p>
-                    <p className="text-xs text-gray-500">
-                      {user.department && `${user.department} • `}
-                      {user.division.name}
-                    </p>
+              {usersLoading ? (
+                <p className="text-center text-gray-500 py-8">
+                  Loading users...
+                </p>
+              ) : users.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  No users found.
+                </p>
+              ) : (
+                users.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
+                    <div>
+                      <h3 className="font-medium">{user.name}</h3>
+                      <p className="text-sm text-gray-600">{user.email}</p>
+                      <p className="text-xs text-gray-500">
+                        {user.department && `${user.department} • `}
+                        {user.division.name}
+                      </p>
+                    </div>
+                    <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">
+                      {user.id}
+                    </span>
                   </div>
-                  <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">
-                    {user.id}
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
+            </div>
+
+            {/* Pagination */}
+            <div className="mt-6">
+              <Pagination
+                currentPage={usersPagination.page}
+                totalPages={usersPagination.pages}
+                totalItems={usersPagination.total}
+                itemsPerPage={usersPagination.limit}
+                onPageChange={handleUsersPageChange}
+                onItemsPerPageChange={handleUsersLimitChange}
+                showItemsPerPage={true}
+              />
             </div>
           </div>
         )}
 
         {activeTab === "queues" && (
           <div className="bg-white p-6 rounded-lg shadow border">
-            <h3 className="text-lg font-medium mb-4">Queues</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium">Queues</h3>
+              <button
+                onClick={() => fetchQueues(queuesPage, queuesLimit)}
+                disabled={queuesLoading}
+                className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
+              >
+                {queuesLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
             <div className="space-y-4">
-              {queues.map((queue) => (
-                <div
-                  key={queue.id}
-                  className="flex items-center justify-between p-4 border rounded-lg"
-                >
-                  <div>
-                    <h3 className="font-medium">{queue.name}</h3>
-                    {queue.description && (
-                      <p className="text-sm text-gray-600">
-                        {queue.description}
+              {queuesLoading ? (
+                <p className="text-center text-gray-500 py-8">
+                  Loading queues...
+                </p>
+              ) : queues.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  No queues found.
+                </p>
+              ) : (
+                queues.map((queue) => (
+                  <div
+                    key={queue.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
+                    <div>
+                      <h3 className="font-medium">{queue.name}</h3>
+                      {queue.description && (
+                        <p className="text-sm text-gray-600">
+                          {queue.description}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        {queue.division.name}
                       </p>
-                    )}
-                    <p className="text-xs text-gray-500">
-                      {queue.division.name}
-                    </p>
+                    </div>
+                    <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">
+                      {queue.id}
+                    </span>
                   </div>
-                  <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">
-                    {queue.id}
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
+            </div>
+
+            {/* Pagination */}
+            <div className="mt-6">
+              <Pagination
+                currentPage={queuesPagination.page}
+                totalPages={queuesPagination.pages}
+                totalItems={queuesPagination.total}
+                itemsPerPage={queuesPagination.limit}
+                onPageChange={handleQueuesPageChange}
+                onItemsPerPageChange={handleQueuesLimitChange}
+                showItemsPerPage={true}
+              />
             </div>
           </div>
         )}
