@@ -164,6 +164,14 @@ router.get(
       .optional()
       .isArray()
       .withMessage("Queue IDs must be an array"),
+    query("page")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Page must be a positive integer"),
+    query("limit")
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage("Limit must be between 1 and 100"),
   ],
   async (req: Request, res: Response) => {
     try {
@@ -175,7 +183,14 @@ router.get(
         });
       }
 
-      const { startDate, endDate, userIds, queueIds } = req.query;
+      const {
+        startDate,
+        endDate,
+        userIds,
+        queueIds,
+        page = 1,
+        limit = 25,
+      } = req.query;
 
       const start = new Date(startDate as string);
       const end = new Date(endDate as string);
@@ -200,9 +215,14 @@ router.get(
           : [String(queueIds)]
         : undefined;
 
-      const callRecords = await genesysService.getCallRecords(
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+
+      const result = await genesysService.getCallRecords(
         start,
         end,
+        pageNum,
+        limitNum,
         userIdArray,
         queueIdArray
       );
@@ -210,11 +230,15 @@ router.get(
       res.json({
         success: true,
         data: {
-          callRecords,
+          callRecords: result.callRecords,
+          pagination: result.pagination,
           summary: {
-            totalCalls: callRecords.length,
+            totalCalls: result.pagination.total,
             totalMinutes: Math.round(
-              callRecords.reduce((sum, record) => sum + record.duration, 0) / 60
+              result.callRecords.reduce(
+                (sum, record) => sum + record.duration,
+                0
+              ) / 60
             ),
             dateRange: {
               start: start.toISOString(),
@@ -334,7 +358,8 @@ router.get(
       }
 
       // Get call records
-      const callRecords = await genesysService.getCallRecords(start, end);
+      const result = await genesysService.getCallRecords(start, end, 1, 1000); // Get up to 1000 records for usage
+      const callRecords = result.callRecords;
 
       // Convert to billing-compatible format
       const usageData = callRecords.map((record) => ({
