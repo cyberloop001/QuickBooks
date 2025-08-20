@@ -200,7 +200,6 @@ export class GenesysService {
                 dimension: "mediaType",
                 value: "voice",
               },
-
             ],
           },
         ],
