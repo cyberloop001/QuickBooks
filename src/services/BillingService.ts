@@ -393,7 +393,7 @@ export class BillingService {
     }
 
     // Create invoice payload
-    const invoicePayload = this.createInvoicePayload(
+    const invoicePayload = await this.createInvoicePayload(
       client,
       totalMinutes,
       totalAmount,
@@ -425,15 +425,43 @@ export class BillingService {
   /**
    * Create invoice payload for QBO
    */
-  private createInvoicePayload(
+  private async createInvoicePayload(
     client: Client,
     totalMinutes: number,
     totalAmount: number,
     billingJob: BillingJob
-  ): any {
+  ): Promise<any> {
     const billingPeriod = `${
       billingJob.startDate.toISOString().split("T")[0]
     } to ${billingJob.endDate.toISOString().split("T")[0]}`;
+
+    // Get company information for invoice header
+    let companyInfo: any = null;
+    try {
+      companyInfo = await this.qboService.getCompanyInfo();
+    } catch (error) {
+      logger.warn("Failed to get company info for invoice, using defaults", {
+        error,
+      });
+    }
+
+    // Build ShipFromAddr from company information or use defaults
+    const shipFromAddr = companyInfo?.CompanyAddr
+      ? {
+          Line1: companyInfo.CompanyAddr.Line1 || "Your Company Name",
+          City: companyInfo.CompanyAddr.City || "Your City",
+          CountrySubDivisionCode:
+            companyInfo.CompanyAddr.CountrySubDivisionCode || "CA",
+          PostalCode: companyInfo.CompanyAddr.PostalCode || "12345",
+          Country: companyInfo.CompanyAddr.Country || "US",
+        }
+      : {
+          Line1: client.address || "Your Company Name",
+          City: client.city || "Your City",
+          CountrySubDivisionCode: client.state || "CA",
+          PostalCode: client.zipCode || "12345",
+          Country: client.country || "US",
+        };
 
     return {
       Line: [
@@ -461,13 +489,7 @@ export class BillingService {
       }`,
       TxnDate: moment(billingJob.endDate).add(1, "day").format("YYYY-MM-DD"),
       BillEmail: client.email ? { Address: client.email } : undefined,
-      ShipFromAddr: {
-        Line1: client.address || "Your Company Name",
-        City: client.city || "Your City",
-        CountrySubDivisionCode: client.state || "CA",
-        PostalCode: client.zipCode || "12345",
-        Country: client.country || "US",
-      },
+      ShipFromAddr: shipFromAddr,
       CustomerMemo: {
         value: `Phone usage charges for ${moment(billingJob.startDate).format(
           "MMMM YYYY"

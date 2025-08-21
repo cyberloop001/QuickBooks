@@ -6,9 +6,10 @@ import {
   ExternalLink,
   RefreshCw,
   Settings,
+  XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { redirect } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 interface QBOStatus {
   authenticated: boolean;
@@ -35,6 +36,7 @@ export function QBOSetup() {
 
       if (data.success) {
         setStatus(data.data);
+        await fetchCompanyInfo();
       } else {
         toast.error("Failed to fetch QBO status");
       }
@@ -74,7 +76,6 @@ export function QBOSetup() {
 
       if (data.success) {
         toast.success("QBO connection successful!");
-        await fetchCompanyInfo();
       } else {
         toast.error(data.error || "Connection test failed");
       }
@@ -91,7 +92,7 @@ export function QBOSetup() {
       const data = await response.json();
 
       if (data.success) {
-        setCompanyInfo(data.data);
+        setCompanyInfo(data.data.CompanyInfo);
       }
     } catch (error) {
       // Company info fetch failed, but that's okay
@@ -216,23 +217,47 @@ export function QBOSetup() {
                   : "text-danger-600"
               }`}
             >
-              {status?.clientId === "configured"
-                ? "✓ Configured"
-                : "✗ Not Configured"}
+              {status?.clientId === "configured" ? (
+                <>
+                  <div className="flex items-center">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Configured
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center">
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Not Configured
+                  </div>
+                </>
+              )}
             </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-600">Redirect URI</span>
             <span
               className={`text-sm font-medium ${
-                status?.redirectUri === "configured"
+                status?.redirectUri !== ""
                   ? "text-success-600"
                   : "text-danger-600"
               }`}
             >
-              {status?.redirectUri === "configured"
-                ? "✓ Configured"
-                : "✗ Not Configured"}
+              {status?.redirectUri !== "" ? (
+                <>
+                  <div className="flex items-center">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Configured
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center">
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Not Configured
+                  </div>
+                </>
+              )}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -242,7 +267,21 @@ export function QBOSetup() {
                 status?.authenticated ? "text-success-600" : "text-warning-600"
               }`}
             >
-              {status?.authenticated ? "✓ Completed" : "⚠ Pending"}
+              {status?.authenticated ? (
+                <>
+                  <div className="flex items-center">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Completed
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                    Not Completed
+                  </div>
+                </>
+              )}
             </span>
           </div>
         </div>
@@ -287,10 +326,17 @@ export function QBOSetup() {
       {/* Company Information */}
       {companyInfo && (
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Company Information
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Company Information
+            </h2>
+            <Link to="/company-info" className="btn btn-secondary btn-sm">
+              View Full Company Details
+            </Link>
+          </div>
+
+          {/* Basic Company Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <p className="text-sm font-medium text-gray-600">Company Name</p>
               <p className="text-sm text-gray-900">{companyInfo.CompanyName}</p>
@@ -309,6 +355,34 @@ export function QBOSetup() {
               </p>
               <p className="text-sm text-gray-900">
                 {companyInfo.FiscalYearStartMonth}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-600">Company ID</p>
+              <p className="text-sm text-gray-900">{companyInfo.Id}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-600">
+                Supported Languages
+              </p>
+              <p className="text-sm text-gray-900">
+                {companyInfo.SupportedLanguages}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-600">
+                Default Timezone
+              </p>
+              <p className="text-sm text-gray-900">
+                {companyInfo.DefaultTimeZone || "Not Set"}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-600">
+                Company Start Date
+              </p>
+              <p className="text-sm text-gray-900">
+                {companyInfo.CompanyStartDate || "Not Set"}
               </p>
             </div>
           </div>
@@ -350,7 +424,7 @@ export function QBOSetup() {
               <p>
                 Set the redirect URI to:{" "}
                 <code className="bg-gray-100 px-2 py-1 rounded">
-                  {window.location.origin}/api/qbo/callback
+                  {window.location.origin}/qbo-callback
                 </code>
               </p>
             </div>

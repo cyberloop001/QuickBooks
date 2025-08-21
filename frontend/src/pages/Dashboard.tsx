@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { format } from "date-fns";
+import { Link } from "react-router-dom";
 
 interface DashboardOverview {
   clients: {
@@ -266,6 +267,42 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Company Information Quick View */}
+      {systemStatus?.qbo?.authenticated && (
+        <div className="bg-white p-6 rounded-lg shadow border">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium flex items-center">
+              <Database className="h-5 w-5 mr-2" />
+              Company Information
+            </h3>
+            <Link
+              to="/company-info"
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              View Full Details →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-gray-50 p-3 rounded">
+              <p className="text-xs font-medium text-gray-600">Company</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {systemStatus.qbo.companyName || "QuickBooks Online"}
+              </p>
+            </div>
+            <div className="bg-gray-50 p-3 rounded">
+              <p className="text-xs font-medium text-gray-600">Environment</p>
+              <p className="text-sm font-semibold text-gray-900 capitalize">
+                {systemStatus.qbo.environment || "Production"}
+              </p>
+            </div>
+            <div className="bg-gray-50 p-3 rounded">
+              <p className="text-xs font-medium text-gray-600">Status</p>
+              <p className="text-sm font-semibold text-green-600">Connected</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Tabs */}
       <div className="space-y-4">

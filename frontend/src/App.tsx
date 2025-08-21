@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { BillingJobs } from "./pages/BillingJobs";
 import { Clients } from "./pages/Clients";
+import { CompanyInfo } from "./pages/CompanyInfo";
 import { QBOSetup } from "./pages/QBOSetup";
 import { QBOCallback } from "./pages/QBOCallback";
 import { GenesysIntegration } from "./pages/GenesysIntegration";
@@ -23,6 +24,7 @@ function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/billing" element={<BillingJobs />} />
         <Route path="/clients" element={<Clients />} />
+        <Route path="/company-info" element={<CompanyInfo />} />
         <Route path="/qbo-setup" element={<QBOSetup />} />
         <Route path="/qbo-callback" element={<QBOCallback />} />
         <Route path="/genesys" element={<GenesysIntegration />} />

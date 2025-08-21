@@ -303,12 +303,24 @@ router.get("/system-status", async (req: Request, res: Response) => {
       genesysService.testConnection().catch(() => false),
     ]);
 
+    // Get company information if QBO is connected
+    let companyInfo: any = null;
+    if (qboConnected) {
+      try {
+        companyInfo = await qboService.getCompanyInfo();
+      } catch (error) {
+        logger.warn("Failed to get company info for system status", { error });
+      }
+    }
+
     res.json({
       success: true,
       data: {
         qbo: {
           ...qboStatus,
           connected: qboConnected,
+          companyName: companyInfo?.CompanyName,
+          environment: config.qbo.environment,
         },
         genesys: {
           ...genesysStatus,

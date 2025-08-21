@@ -11,6 +11,7 @@ import {
   Bell,
   Database,
   Phone,
+  Building2,
 } from "lucide-react";
 import { useAuthStore } from "../stores/authStore";
 
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Billing Jobs", href: "/billing", icon: CreditCard },
   { name: "Clients", href: "/clients", icon: Users },
+  { name: "Company Info", href: "/company-info", icon: Building2 },
   { name: "QBO Setup", href: "/qbo-setup", icon: Database },
   { name: "Genesys Cloud", href: "/genesys", icon: Phone },
   { name: "Settings", href: "/settings", icon: Settings },
