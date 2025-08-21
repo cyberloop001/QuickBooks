@@ -402,7 +402,7 @@ export function CompanyInfo() {
                   <p className="text-sm text-gray-900">
                     {companyInfo.CustomerCommunicationEmailAddr.Address}
                   </p>
-                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -533,7 +533,9 @@ export function CompanyInfo() {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center">
                   <Database className="h-4 w-4 text-gray-500 mr-2" />
-                  <p className="text-sm font-medium text-gray-600">Sync Token</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Sync Token
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-900">
@@ -563,7 +565,9 @@ export function CompanyInfo() {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center">
                   <Clock className="h-4 w-4 text-gray-500 mr-2" />
-                  <p className="text-sm font-medium text-gray-600">Last Updated</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Last Updated
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-900">
