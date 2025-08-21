@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { query, validationResult } from "express-validator";
-import { getRepository } from "typeorm";
+import { getRepository, Repository } from "typeorm";
 import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
 import { Client } from "../entities/Client";
 import { PhoneUsage } from "../entities/PhoneUsage";
@@ -11,9 +11,45 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 
 const router = Router();
-const qboService = new QBOService();
-const genesysService = new GenesysService();
-const jobScheduler = new JobScheduler();
+
+// Lazy initialization of services to avoid database connection issues
+let qboService: QBOService | null = null;
+let genesysService: GenesysService | null = null;
+let jobScheduler: JobScheduler | null = null;
+
+const getQBOService = (): QBOService => {
+  if (!qboService) {
+    qboService = new QBOService();
+  }
+  return qboService;
+};
+
+const getGenesysService = (): GenesysService => {
+  if (!genesysService) {
+    genesysService = new GenesysService();
+  }
+  return genesysService;
+};
+
+const getJobScheduler = (): JobScheduler => {
+  if (!jobScheduler) {
+    jobScheduler = new JobScheduler();
+  }
+  return jobScheduler;
+};
+
+// Lazy initialization of repositories
+const getBillingJobRepository = (): Repository<BillingJob> => {
+  return getRepository(BillingJob);
+};
+
+const getClientRepository = (): Repository<Client> => {
+  return getRepository(Client);
+};
+
+const getPhoneUsageRepository = (): Repository<PhoneUsage> => {
+  return getRepository(PhoneUsage);
+};
 
 /**
  * GET /dashboard/overview - Get system overview and key metrics
@@ -29,23 +65,23 @@ router.get("/overview", async (req: Request, res: Response) => {
       totalRevenue,
       recentUsage,
     ] = await Promise.all([
-      getRepository(Client).count(),
-      getRepository(BillingJob).count(),
-      getRepository(BillingJob).count({
+      getClientRepository().count(),
+      getBillingJobRepository().count(),
+      getBillingJobRepository().count({
         where: { status: BillingJobStatus.COMPLETED },
       }),
-      getRepository(BillingJob).count({
+      getBillingJobRepository().count({
         where: { status: BillingJobStatus.FAILED },
       }),
-      getRepository(BillingJob)
+      getBillingJobRepository()
         .createQueryBuilder("job")
         .select("SUM(job.totalInvoices)", "total")
         .getRawOne(),
-      getRepository(BillingJob)
+      getBillingJobRepository()
         .createQueryBuilder("job")
         .select("SUM(job.totalAmount)", "total")
         .getRawOne(),
-      getRepository(PhoneUsage)
+      getPhoneUsageRepository()
         .createQueryBuilder("usage")
         .select("SUM(usage.billableMinutes)", "totalMinutes")
         .addSelect("COUNT(usage.id)", "totalCalls")
@@ -56,9 +92,9 @@ router.get("/overview", async (req: Request, res: Response) => {
     ]);
 
     // Get system status
-    const qboStatus = qboService.getTokenStatus();
-    const genesysStatus = genesysService.getStatus();
-    const schedulerStatus = jobScheduler.getStatus();
+    const qboStatus = getQBOService().getTokenStatus();
+    const genesysStatus = getGenesysService().getStatus();
+    const schedulerStatus = getJobScheduler().getStatus();
 
     res.json({
       success: true,
@@ -137,7 +173,7 @@ router.get(
 
       const { page = 1, limit = 20, status, startDate, endDate } = req.query;
 
-      const queryBuilder = getRepository(BillingJob).createQueryBuilder("job");
+      const queryBuilder = getBillingJobRepository().createQueryBuilder("job");
 
       // Add filters
       if (status) {
@@ -191,7 +227,7 @@ router.get(
 router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const job = await getRepository(BillingJob).findOne({
+    const job = await getBillingJobRepository().findOne({
       where: { id },
       relations: ["clientBillingResults"],
     });
@@ -264,7 +300,7 @@ router.post(
         });
       }
 
-      const result = await jobScheduler.runManualBilling(
+      const result = await getJobScheduler().runManualBilling(
         start,
         end,
         clientId as string,
@@ -292,22 +328,26 @@ router.post(
 router.get("/system-status", async (req: Request, res: Response) => {
   try {
     const [qboStatus, genesysStatus, schedulerStatus] = await Promise.all([
-      qboService.getTokenStatus(),
-      genesysService.getStatus(),
-      jobScheduler.getStatus(),
+      getQBOService().getTokenStatus(),
+      getGenesysService().getStatus(),
+      getJobScheduler().getStatus(),
     ]);
 
     // Test connections
     const [qboConnected, genesysConnected] = await Promise.all([
-      qboService.testConnection().catch(() => false),
-      genesysService.testConnection().catch(() => false),
+      getQBOService()
+        .testConnection()
+        .catch(() => false),
+      getGenesysService()
+        .testConnection()
+        .catch(() => false),
     ]);
 
     // Get company information if QBO is connected
     let companyInfo: any = null;
     if (qboConnected) {
       try {
-        companyInfo = await qboService.getCompanyInfo();
+        companyInfo = await getQBOService().getCompanyInfo();
       } catch (error) {
         logger.warn("Failed to get company info for system status", { error });
       }
@@ -357,9 +397,9 @@ router.get("/system-status", async (req: Request, res: Response) => {
 router.post("/system-status/test", async (req: Request, res: Response) => {
   try {
     const [qboTest, genesysTest, schedulerTest] = await Promise.all([
-      qboService.testConnection(),
-      genesysService.testConnection(),
-      jobScheduler.testBillingScheduler(),
+      getQBOService().testConnection(),
+      getGenesysService().testConnection(),
+      getJobScheduler().testBillingScheduler(),
     ]);
 
     res.json({
@@ -405,7 +445,7 @@ router.get(
       const days = Number(req.query.days) || 30;
       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-      const usageSummary = await getRepository(PhoneUsage)
+      const usageSummary = await getPhoneUsageRepository()
         .createQueryBuilder("usage")
         .select("DATE(usage.startedAt)", "date")
         .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
@@ -416,7 +456,7 @@ router.get(
         .orderBy("date", "ASC")
         .getRawMany();
 
-      const clientSummary = await getRepository(PhoneUsage)
+      const clientSummary = await getPhoneUsageRepository()
         .createQueryBuilder("usage")
         .select("usage.clientId", "clientId")
         .addSelect("SUM(usage.billableMinutes)", "totalMinutes")

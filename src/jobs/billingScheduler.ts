@@ -3,7 +3,7 @@ import moment from "moment-timezone";
 import { BillingService } from "../services/BillingService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
-import { getRepository } from "typeorm";
+import { getRepository, Repository } from "typeorm";
 import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
 
 export class BillingScheduler {
@@ -13,6 +13,10 @@ export class BillingScheduler {
 
   constructor() {
     this.billingService = new BillingService();
+  }
+
+  private get billingJobRepository(): Repository<BillingJob> {
+    return getRepository(BillingJob);
   }
 
   /**
@@ -60,7 +64,7 @@ export class BillingScheduler {
    */
   private async checkAndRunInitialBilling(): Promise<void> {
     try {
-      const billingJobRepo = getRepository(BillingJob);
+      const billingJobRepo = this.billingJobRepository;
       const lastJob = await billingJobRepo.findOne({
         order: { createdAt: "DESC" },
       });
@@ -76,6 +80,34 @@ export class BillingScheduler {
       }
     } catch (error) {
       logger.error("Failed to check initial billing", { error });
+    }
+  }
+
+  /**
+   * Check if billing job already exists for the period
+   */
+  private async checkExistingJob(
+    startDate: Date,
+    endDate: Date
+  ): Promise<boolean> {
+    try {
+      const billingJobRepo = this.billingJobRepository;
+      const existingJob = await billingJobRepo.findOne({
+        where: {
+          startDate,
+          endDate,
+          status: BillingJobStatus.COMPLETED,
+        },
+      });
+
+      return !!existingJob;
+    } catch (error) {
+      logger.error("Failed to check existing billing job", {
+        error,
+        startDate,
+        endDate,
+      });
+      return false;
     }
   }
 

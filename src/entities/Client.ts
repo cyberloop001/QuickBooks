@@ -81,4 +81,16 @@ export class Client {
   getDisplayName(): string {
     return this.name || this.genesysClientId;
   }
+
+  getFormattedRate(): string {
+    return `$${this.ratePerMinute.toFixed(2)}`;
+  }
+
+  hasQboMapping(): boolean {
+    return !!this.qboCustomerId;
+  }
+
+  isComplete(): boolean {
+    return !!(this.name && this.genesysClientId && this.email);
+  }
 }

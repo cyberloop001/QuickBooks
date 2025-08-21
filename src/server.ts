@@ -21,45 +21,22 @@ const PORT = config.server.port;
 
 // Security middleware
 app.use(helmet());
+
+// CORS configuration
 app.use(
   cors({
-    origin: config.security.corsOrigin,
+    origin:
+      config.server.environment === "development"
+        ? ["http://localhost:3000", "http://127.0.0.1:3000"]
+        : [config.server.baseUrl],
     credentials: true,
   })
 );
 
 // Request logging
-app.use(
-  morgan("combined", {
-    stream: {
-      write: (message: string) => logger.info(message.trim()),
-    },
-  })
-);
-
-// Raw body capture for QBO webhooks (must come before JSON parsing)
-app.post(
-  "/api/v1/qbo/webhook",
-  express.raw({ type: "application/json" }),
-  (req, _res, next) => {
-    (req as any).rawBody = req.body;
-    try {
-      // Parse JSON for downstream handler while retaining rawBody
-      const text =
-        req.body instanceof Buffer
-          ? req.body.toString("utf8")
-          : String(req.body || "");
-      (req as any).body = text ? JSON.parse(text) : {};
-    } catch {
-      (req as any).body = {};
-    }
-    next();
-  }
-);
-
-// Body parsing
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+if (config.server.environment === "development") {
+  app.use(morgan("combined"));
+}
 
 // Rate limiting
 app.use(rateLimiter);
@@ -67,21 +44,20 @@ app.use(rateLimiter);
 // Kill switch middleware
 app.use(killSwitchMiddleware);
 
-// Health check endpoint
+// Body parsing middleware
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Health check endpoint (available before database connection)
 app.get("/health", (req, res) => {
-  res.status(200).json({
+  res.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
     environment: config.server.environment,
-    killSwitchEnabled: config.killSwitch.enabled,
+    version: "1.0.0",
   });
 });
-
-// Setup routes
-setupRoutes(app);
-
-// Error handling middleware (must be last)
-app.use(errorHandler);
 
 // Database connection and server startup
 async function startServer() {
@@ -95,13 +71,19 @@ async function startServer() {
       password: config.database.password,
       database: config.database.name,
       ssl: config.database.ssl,
-      entities: [__dirname + "/entities/**/*.js"],
-      migrations: [__dirname + "/database/migrations/**/*.js"],
+      entities: [__dirname + "/entities/**/*.ts"],
+      migrations: [__dirname + "/database/migrations/**/*.ts"],
       synchronize: config.server.environment === "development",
       logging: config.server.environment === "development",
     });
 
     logger.info("Database connection established");
+
+    // Setup routes AFTER database connection is established
+    setupRoutes(app);
+
+    // Error handling middleware (must be last)
+    app.use(errorHandler);
 
     // Setup scheduled jobs
     const jobScheduler = new JobScheduler();
@@ -113,6 +95,7 @@ async function startServer() {
         `Server running on port ${PORT} in ${config.server.environment} mode`
       );
       logger.info(`Health check available at http://localhost:${PORT}/health`);
+      logger.info(`API available at http://localhost:${PORT}/api/v1`);
     });
   } catch (error) {
     logger.error("Failed to start server:", error);
