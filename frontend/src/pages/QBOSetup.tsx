@@ -8,6 +8,7 @@ import {
   Settings,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { redirect } from "react-router-dom";
 
 interface QBOStatus {
   authenticated: boolean;
@@ -51,7 +52,7 @@ export function QBOSetup() {
 
       if (data.success) {
         // Open the authorization URL in a new window
-        window.open(data.data.authUrl, "_blank", "width=600,height=700");
+        window.location.href = data.data.authUrl;
         toast.success(
           "OAuth window opened. Please complete the authorization."
         );
@@ -272,14 +273,13 @@ export function QBOSetup() {
                 )}
                 {isTesting ? "Testing..." : "Test Connection"}
               </button>
-              <button
-                onClick={refreshToken}
-                className="btn btn-secondary btn-lg"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh Token
-              </button>
             </>
+          )}
+          {status?.hasTokens && (
+            <button onClick={refreshToken} className="btn btn-secondary btn-lg">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Token
+            </button>
           )}
         </div>
       </div>
