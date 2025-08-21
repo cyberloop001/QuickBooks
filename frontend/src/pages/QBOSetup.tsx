@@ -29,7 +29,7 @@ export function QBOSetup() {
 
   const fetchQBOStatus = async () => {
     try {
-      const response = await fetch("/api/qbo/status");
+      const response = await fetch("/api/v1/qbo/status");
       const data = await response.json();
 
       if (data.success) {
@@ -46,7 +46,7 @@ export function QBOSetup() {
 
   const startOAuthFlow = async () => {
     try {
-      const response = await fetch("/api/qbo/auth");
+      const response = await fetch("/api/v1/qbo/auth");
       const data = await response.json();
 
       if (data.success) {
@@ -66,7 +66,7 @@ export function QBOSetup() {
   const testConnection = async () => {
     setIsTesting(true);
     try {
-      const response = await fetch("/api/qbo/test-connection", {
+      const response = await fetch("/api/v1/qbo/test-connection", {
         method: "POST",
       });
       const data = await response.json();
@@ -86,7 +86,7 @@ export function QBOSetup() {
 
   const fetchCompanyInfo = async () => {
     try {
-      const response = await fetch("/api/qbo/company-info");
+      const response = await fetch("/api/v1/qbo/company-info");
       const data = await response.json();
 
       if (data.success) {
@@ -99,7 +99,7 @@ export function QBOSetup() {
 
   const refreshToken = async () => {
     try {
-      const response = await fetch("/api/qbo/refresh");
+      const response = await fetch("/api/v1/qbo/refresh");
       const data = await response.json();
 
       if (data.success) {

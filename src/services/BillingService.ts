@@ -139,7 +139,7 @@ export class BillingService {
   }
 
   /**
-   * Fetch phone usage data from phone system API or Genesys Cloud
+   * Fetch phone usage data from Genesys Cloud Analytics API
    */
   private async fetchPhoneUsageData(
     startDate: Date,
@@ -152,14 +152,19 @@ export class BillingService {
       // Try Genesys Cloud first if configured
       if (config.genesys.clientId && config.genesys.clientSecret) {
         try {
-          logger.info("Attempting to fetch data from Genesys Cloud...");
-          const genesysData = await this.genesysService.getCallRecords(
+          logger.info(
+            "Fetching billing call data from Genesys Cloud Analytics API..."
+          );
+
+          // Use the optimized billing method that groups data by client
+          const billingData = await this.genesysService.getBillingCallData(
             startDate,
-            endDate
+            endDate,
+            clientId ? [clientId] : undefined
           );
 
           // Convert Genesys data to billing format
-          usageData = genesysData.map((record) => ({
+          usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
             client_id: clientId || record.userId || "unknown",
             started_at: record.startTime,
@@ -168,16 +173,27 @@ export class BillingService {
             started_pst: record.startTime, // Genesys provides UTC, convert if needed
             ended_pst: record.endTime,
             source: "genesys",
+            wrap_up_code: record.wrapUpCode,
+            recording_id: record.recordingId,
+            user_id: record.userId,
+            queue_id: record.queueId,
           }));
 
-          logger.info("Successfully fetched data from Genesys Cloud", {
-            count: usageData.length,
-            startDate,
-            endDate,
-          });
+          logger.info(
+            "Successfully fetched billing data from Genesys Cloud Analytics API",
+            {
+              count: usageData.length,
+              totalHits: billingData.aggregations.totalCalls,
+              clientsCount: Object.keys(billingData.aggregations.byClient)
+                .length,
+              totalMinutes: billingData.aggregations.totalMinutes,
+              startDate,
+              endDate,
+            }
+          );
         } catch (genesysError) {
           logger.warn(
-            "Failed to fetch from Genesys Cloud, falling back to phone system",
+            "Failed to fetch from Genesys Cloud Analytics API, falling back to phone system",
             {
               error: genesysError,
             }
@@ -187,7 +203,7 @@ export class BillingService {
 
       // If no Genesys data, log warning
       if (usageData.length === 0) {
-        logger.warn("No call data available from Genesys Cloud", {
+        logger.warn("No call data available from Genesys Cloud Analytics API", {
           startDate,
           endDate,
           clientId,

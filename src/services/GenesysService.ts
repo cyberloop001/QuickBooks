@@ -15,6 +15,8 @@ export interface GenesysCallRecord {
   purpose?: string;
   outcome?: string;
   mediaType: "voice" | "chat" | "email";
+  wrapUpCode?: string;
+  recordingId?: string;
 }
 
 export interface GenesysUser {
@@ -158,14 +160,25 @@ export class GenesysService {
   }
 
   /**
-   * Get call detail records (CDRs) for a date range
+   * Get call detail records (CDRs) for a date range using the Analytics API
    */
   async getCallRecords(
     startDate: Date,
     endDate: Date,
+    page: number = 1,
+    limit: number = 25,
     userIds?: string[],
-    queueIds?: string[]
-  ): Promise<GenesysCallRecord[]> {
+    queueIds?: string[],
+    filters?: any
+  ): Promise<{
+    callRecords: GenesysCallRecord[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  }> {
     if (!this.api) {
       throw new Error("API client not initialized");
     }
@@ -176,24 +189,12 @@ export class GenesysService {
       const startTime = startDate.toISOString();
       const endTime = endDate.toISOString();
 
-      // Build query parameters
-      const queryParams: any = {
-        startTime,
-        endTime,
-        interval: "1d", // Daily aggregation
-        metrics: ["nConversations", "tConversationDuration"],
-        dimensions: [
-          "conversationId",
-          "startTime",
-          "endTime",
-          "userId",
-          "queueId",
-          "direction",
-          "mediaType",
-        ],
-        filters: [
+      // Build the analytics query based on the new API structure
+      const analyticsQuery: any = {
+        interval: `${startTime}/${endTime}`,
+        segmentFilters: [
           {
-            type: "and",
+            type: "or",
             predicates: [
               {
                 dimension: "mediaType",
@@ -206,7 +207,7 @@ export class GenesysService {
 
       // Add user filters if specified
       if (userIds && userIds.length > 0) {
-        queryParams.filters[0].predicates.push({
+        analyticsQuery.segmentFilters[0].predicates.push({
           dimension: "userId",
           values: userIds,
         });
@@ -214,56 +215,114 @@ export class GenesysService {
 
       // Add queue filters if specified
       if (queueIds && queueIds.length > 0) {
-        queryParams.filters[0].predicates.push({
+        analyticsQuery.segmentFilters[0].predicates.push({
           dimension: "queueId",
           values: queueIds,
         });
       }
 
+      // Add custom filters if provided
+      if (filters) {
+        analyticsQuery.segmentFilters.push(filters);
+      }
+
+      // Add pagination
+      analyticsQuery.pageSize = limit;
+      analyticsQuery.pageNumber = page;
+
       const response = await this.api.post(
         `/api/v2/analytics/conversations/details/query`,
-        queryParams
+        analyticsQuery
       );
 
-      const callRecords: GenesysCallRecord[] = response.data.results.map(
-        (result: any) => ({
-          conversationId: result.conversationId,
-          startTime: result.startTime,
-          endTime: result.endTime,
-          duration: Math.round(result.tConversationDuration / 1000), // Convert from milliseconds to seconds
-          userId: result.userId,
-          queueId: result.queueId,
-          direction: result.direction || "inbound",
-          mediaType: "voice",
-        })
+      // Handle the actual API response structure
+      const conversations = response.data.conversations || [];
+      const callRecords: GenesysCallRecord[] = conversations.map(
+        (conversation: any) => {
+          console.log(conversation);
+          // Extract user and queue info from participants
+          const participants = conversation.participants || [];
+          const agentParticipant = participants.find(
+            (p: any) => p.purpose === "agent"
+          );
+          const userId = agentParticipant?.userId;
+          const queueId = agentParticipant?.queueId;
+
+          return {
+            conversationId: conversation.conversationId,
+            startTime: conversation.conversationStart,
+            endTime: conversation.conversationEnd,
+            duration: Math.round(
+              (new Date(conversation.conversationEnd).getTime() -
+                new Date(conversation.conversationStart).getTime()) /
+                1000
+            ),
+            userId,
+            queueId,
+            direction: conversation.originatingDirection,
+            mediaType: conversation.mediaType,
+            wrapUpCode: conversation.wrapUpCode,
+            recordingId: conversation.recordingId,
+          };
+        }
       );
 
-      logger.info("Retrieved call records from Genesys Cloud", {
-        count: callRecords.length,
+      // Get total hits from response (approximate total)
+      const totalHits = response.data.totalHits || 0;
+      const totalPages = Math.ceil(totalHits / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedCallRecords = callRecords.slice(startIndex, endIndex);
+
+      logger.info("Retrieved call records from Genesys Cloud Analytics API", {
+        count: paginatedCallRecords.length,
+        totalHits,
+        page,
+        limit,
         startDate,
         endDate,
       });
 
       logGenesysAction("get_call_records", {
         success: true,
-        count: callRecords.length,
+        count: paginatedCallRecords.length,
+        totalHits,
+        page,
+        limit,
         startDate,
         endDate,
       });
 
-      return callRecords;
+      return {
+        callRecords: paginatedCallRecords,
+        pagination: {
+          page,
+          limit,
+          total: totalHits,
+          pages: totalPages,
+        },
+      };
     } catch (error) {
-      logger.error("Failed to get call records from Genesys Cloud", {
-        error,
-        startDate,
-        endDate,
-      });
+      logger.error(
+        "Failed to get call records from Genesys Cloud Analytics API",
+        {
+          error,
+          startDate,
+          endDate,
+          page,
+          limit,
+        }
+      );
+
       logGenesysAction("get_call_records", {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
         startDate,
         endDate,
+        page,
+        limit,
       });
+
       throw new Error(
         `Failed to get call records: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -452,7 +511,8 @@ export class GenesysService {
     endDate: Date
   ): Promise<GenesysCallAnalytics> {
     try {
-      const callRecords = await this.getCallRecords(startDate, endDate);
+      const result = await this.getCallRecords(startDate, endDate, 1, 1000); // Get up to 1000 records for analytics
+      const callRecords = result.callRecords;
 
       const analytics: GenesysCallAnalytics = {
         totalCalls: callRecords.length,
@@ -509,6 +569,225 @@ export class GenesysService {
         endDate,
       });
       throw error;
+    }
+  }
+
+  /**
+   * Get aggregated call data for billing purposes
+   */
+  async getBillingCallData(
+    startDate: Date,
+    endDate: Date,
+    clientIds?: string[]
+  ): Promise<{
+    callRecords: GenesysCallRecord[];
+    aggregations: {
+      byClient: Record<
+        string,
+        { calls: number; totalDuration: number; totalMinutes: number }
+      >;
+      byWrapUpCode: Record<string, number>;
+      totalCalls: number;
+      totalDuration: number;
+      totalMinutes: number;
+    };
+  }> {
+    if (!this.api) {
+      throw new Error("API client not initialized");
+    }
+
+    try {
+      await this.ensureValidToken();
+
+      const startTime = startDate.toISOString();
+      const endTime = endDate.toISOString();
+
+      // Build the analytics query optimized for billing
+      const billingQuery: any = {
+        interval: `${startTime}/${endTime}`,
+        segmentFilters: [
+          {
+            type: "and",
+            predicates: [
+              {
+                dimension: "mediaType",
+                value: "voice",
+              },
+              {
+                dimension: "purpose",
+                value: "agent",
+              },
+            ],
+          },
+        ],
+        aggregations: [
+          {
+            type: "termFrequency",
+            dimension: "userId",
+            size: 1000,
+          },
+          {
+            type: "termFrequency",
+            dimension: "wrapUpCode",
+            size: 100,
+          },
+          {
+            type: "numericRange",
+            dimension: "tSegmentDuration",
+            ranges: [
+              { gt: 0, lte: 30000 }, // 0-30 seconds
+              { gt: 30000, lte: 60000 }, // 30-60 seconds
+              { gt: 60000, lte: 300000 }, // 1-5 minutes
+              { gt: 300000 }, // 5+ minutes
+            ],
+          },
+        ],
+        pageSize: 1000, // Large page size for billing data
+        pageNumber: 1,
+      };
+
+      // Add client filters if specified
+      if (clientIds && clientIds.length > 0) {
+        billingQuery.segmentFilters[0].predicates.push({
+          dimension: "userId",
+          values: clientIds,
+        });
+      }
+
+      const response = await this.api.post(
+        `/api/v2/analytics/conversations/details/query`,
+        billingQuery
+      );
+
+      // Handle the actual API response structure
+      const conversations = response.data.conversations || [];
+      const callRecords: GenesysCallRecord[] = conversations.map(
+        (conversation: any) => {
+          // Extract user and queue info from participants
+          const participants = conversation.participants || [];
+          const agentParticipant = participants.find(
+            (p: any) => p.purpose === "agent"
+          );
+          const userId = agentParticipant?.userId;
+          const queueId = agentParticipant?.queueId;
+
+          return {
+            conversationId: conversation.conversationId,
+            startTime: conversation.conversationStart,
+            endTime: conversation.conversationEnd,
+            duration: Math.round(
+              (new Date(conversation.conversationEnd).getTime() -
+                new Date(conversation.conversationStart).getTime()) /
+                1000
+            ),
+            userId,
+            queueId,
+            direction: conversation.originatingDirection || "inbound",
+            mediaType: "voice",
+            wrapUpCode: conversation.wrapUpCode,
+            recordingId: conversation.recordingId,
+          };
+        }
+      );
+
+      // Process aggregations for billing
+      const aggregations = response.data.aggregations || [];
+      const byClient: Record<
+        string,
+        { calls: number; totalDuration: number; totalMinutes: number }
+      > = {};
+      const byWrapUpCode: Record<string, number> = {};
+
+      // Process wrap-up code aggregations
+      const wrapUpAgg = aggregations.find(
+        (agg: any) => agg.dimension === "wrapUpCode"
+      );
+      if (wrapUpAgg && wrapUpAgg.results) {
+        wrapUpAgg.results.forEach((result: any) => {
+          byWrapUpCode[result.value] = result.count;
+        });
+      }
+
+      // Group by client (userId) from the actual call records
+      callRecords.forEach((record) => {
+        if (record.userId) {
+          if (!byClient[record.userId]) {
+            byClient[record.userId] = {
+              calls: 0,
+              totalDuration: 0,
+              totalMinutes: 0,
+            };
+          }
+          byClient[record.userId].calls++;
+          byClient[record.userId].totalDuration += record.duration;
+          byClient[record.userId].totalMinutes += record.duration / 60;
+        }
+      });
+
+      // Round minutes to 2 decimal places
+      Object.values(byClient).forEach((clientData) => {
+        clientData.totalMinutes =
+          Math.round(clientData.totalMinutes * 100) / 100;
+      });
+
+      const totalCalls = callRecords.length;
+      const totalDuration = callRecords.reduce(
+        (sum, record) => sum + record.duration,
+        0
+      );
+      const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
+
+      logger.info(
+        "Retrieved billing call data from Genesys Cloud Analytics API",
+        {
+          count: callRecords.length,
+          totalHits: response.data.totalHits || 0,
+          clientsCount: Object.keys(byClient).length,
+          startDate,
+          endDate,
+        }
+      );
+
+      logGenesysAction("get_billing_call_data", {
+        success: true,
+        count: callRecords.length,
+        clientsCount: Object.keys(byClient).length,
+        startDate,
+        endDate,
+      });
+
+      return {
+        callRecords,
+        aggregations: {
+          byClient,
+          byWrapUpCode,
+          totalCalls,
+          totalDuration,
+          totalMinutes,
+        },
+      };
+    } catch (error) {
+      logger.error(
+        "Failed to get billing call data from Genesys Cloud Analytics API",
+        {
+          error,
+          startDate,
+          endDate,
+        }
+      );
+
+      logGenesysAction("get_billing_call_data", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        startDate,
+        endDate,
+      });
+
+      throw new Error(
+        `Failed to get billing call data: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
