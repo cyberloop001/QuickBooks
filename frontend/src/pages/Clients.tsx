@@ -187,10 +187,6 @@ export function Clients() {
     setPagination((prev) => ({ ...prev, page: newPage }));
   };
 
-  const handleLimitChange = (newLimit: number) => {
-    setPagination((prev) => ({ ...prev, limit: newLimit, page: 1 }));
-  };
-
   const handleSearch = (value: string) => {
     setSearchTerm(value);
     setFilters((prev) => ({ ...prev, search: value }));
