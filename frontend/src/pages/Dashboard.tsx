@@ -73,6 +73,7 @@ export function Dashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [billingJobs, setBillingJobs] = useState<BillingJob[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [qboStatus, setQBOStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -82,11 +83,14 @@ export function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const [overviewRes, jobsRes, statusRes] = await Promise.all([
-        fetch("/api/v1/dashboard/overview"),
-        fetch("/api/v1/dashboard/billing-jobs?limit=10"),
-        fetch("/api/v1/dashboard/system-status"),
-      ]);
+      const [overviewRes, jobsRes, statusRes, qboStatusRes] = await Promise.all(
+        [
+          fetch("/api/v1/dashboard/overview"),
+          fetch("/api/v1/dashboard/billing-jobs?limit=10"),
+          fetch("/api/v1/dashboard/system-status"),
+          fetch("/api/v1/qbo/status"),
+        ]
+      );
 
       if (overviewRes.ok) {
         const overviewData = await overviewRes.json();
@@ -101,6 +105,11 @@ export function Dashboard() {
       if (statusRes.ok) {
         const statusData = await statusRes.json();
         setSystemStatus(statusData.data);
+      }
+
+      if (qboStatusRes.ok) {
+        const qboStatusData = await qboStatusRes.json();
+        setQBOStatus(qboStatusData.data);
       }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
@@ -269,7 +278,7 @@ export function Dashboard() {
       </div>
 
       {/* Company Information Quick View */}
-      {systemStatus?.qbo?.authenticated && (
+      {qboStatus?.authenticated && (
         <div className="bg-white p-6 rounded-lg shadow border">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium flex items-center">
@@ -287,13 +296,13 @@ export function Dashboard() {
             <div className="bg-gray-50 p-3 rounded">
               <p className="text-xs font-medium text-gray-600">Company</p>
               <p className="text-sm font-semibold text-gray-900">
-                {systemStatus.qbo.companyName || "QuickBooks Online"}
+                {qboStatus.companyInfo?.companyName || "QuickBooks Online"}
               </p>
             </div>
             <div className="bg-gray-50 p-3 rounded">
               <p className="text-xs font-medium text-gray-600">Environment</p>
               <p className="text-sm font-semibold text-gray-900 capitalize">
-                {systemStatus.qbo.environment || "Production"}
+                {qboStatus.environment || "Production"}
               </p>
             </div>
             <div className="bg-gray-50 p-3 rounded">
@@ -479,22 +488,20 @@ export function Dashboard() {
                 </div>
                 <div className="pt-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {systemStatus.qbo.isAuthenticated ? (
+                    {qboStatus?.authenticated ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                     )}
                     <span className="text-sm">
-                      {systemStatus.qbo.isAuthenticated
-                        ? "Connected"
-                        : "Disconnected"}
+                      {qboStatus?.authenticated ? "Connected" : "Disconnected"}
                     </span>
                   </div>
-                  {systemStatus.qbo.expiresIn && (
+                  {qboStatus?.tokenStatus?.expiresIn && (
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        Expires in {systemStatus.qbo.expiresIn}
+                        Expires in {qboStatus.tokenStatus.expiresIn}
                       </span>
                     </div>
                   )}

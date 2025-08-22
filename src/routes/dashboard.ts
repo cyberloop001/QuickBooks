@@ -4,7 +4,6 @@ import { getRepository, Repository } from "typeorm";
 import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
 import { CustomerProfile } from "../entities/CustomerProfile";
 import { PhoneUsage } from "../entities/PhoneUsage";
-import { QBOService } from "../services/QBOService";
 import { GenesysService } from "../services/GenesysService";
 import { JobScheduler } from "../jobs/scheduler";
 import { logger } from "../utils/logger";
@@ -13,16 +12,8 @@ import { config } from "../config";
 const router = Router();
 
 // Lazy initialization of services to avoid database connection issues
-let qboService: QBOService | null = null;
 let genesysService: GenesysService | null = null;
 let jobScheduler: JobScheduler | null = null;
-
-const getQBOService = (): QBOService => {
-  if (!qboService) {
-    qboService = new QBOService();
-  }
-  return qboService;
-};
 
 const getGenesysService = (): GenesysService => {
   if (!genesysService) {
@@ -92,7 +83,6 @@ router.get("/overview", async (req: Request, res: Response) => {
     ]);
 
     // Get system status
-    const qboStatus = getQBOService().getTokenStatus();
     const genesysStatus = getGenesysService().getStatus();
     const schedulerStatus = getJobScheduler().getStatus();
 
@@ -114,7 +104,6 @@ router.get("/overview", async (req: Request, res: Response) => {
           totalCalls: recentUsage?.totalCalls || 0,
         },
         system: {
-          qbo: qboStatus,
           genesys: genesysStatus,
           scheduler: schedulerStatus,
         },
@@ -327,17 +316,13 @@ router.post(
  */
 router.get("/system-status", async (req: Request, res: Response) => {
   try {
-    const [qboStatus, genesysStatus, schedulerStatus] = await Promise.all([
-      getQBOService().getTokenStatus(),
+    const [genesysStatus, schedulerStatus] = await Promise.all([
       getGenesysService().getStatus(),
       getJobScheduler().getStatus(),
     ]);
 
     // Test connections
-    const [qboConnected, genesysConnected] = await Promise.all([
-      getQBOService()
-        .testConnection()
-        .catch(() => false),
+    const [genesysConnected] = await Promise.all([
       getGenesysService()
         .testConnection()
         .catch(() => false),
@@ -345,23 +330,11 @@ router.get("/system-status", async (req: Request, res: Response) => {
 
     // Get company information if QBO is connected
     let companyInfo: any = null;
-    if (qboConnected) {
-      try {
-        companyInfo = await getQBOService().getCompanyInfo();
-      } catch (error) {
-        logger.warn("Failed to get company info for system status", { error });
-      }
-    }
+    // QBO status is now handled separately in QBO routes
 
     res.json({
       success: true,
       data: {
-        qbo: {
-          ...qboStatus,
-          connected: qboConnected,
-          companyName: companyInfo?.CompanyName,
-          environment: config.qbo.environment,
-        },
         genesys: {
           ...genesysStatus,
           connected: genesysConnected,
@@ -369,11 +342,8 @@ router.get("/system-status", async (req: Request, res: Response) => {
         scheduler: schedulerStatus,
         overall: {
           healthy:
-            qboConnected &&
-            genesysConnected &&
-            schedulerStatus.billing.isSchedulerActive,
+            genesysConnected && schedulerStatus.billing.isSchedulerActive,
           issues: [
-            !qboConnected && "QBO connection failed",
             !genesysConnected && "Genesys connection failed",
             !schedulerStatus.billing.isSchedulerActive &&
               "Scheduler not active",
@@ -396,8 +366,7 @@ router.get("/system-status", async (req: Request, res: Response) => {
  */
 router.post("/system-status/test", async (req: Request, res: Response) => {
   try {
-    const [qboTest, genesysTest, schedulerTest] = await Promise.all([
-      getQBOService().testConnection(),
+    const [genesysTest, schedulerTest] = await Promise.all([
       getGenesysService().testConnection(),
       getJobScheduler().testBillingScheduler(),
     ]);
@@ -405,10 +374,9 @@ router.post("/system-status/test", async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        qbo: qboTest,
         genesys: genesysTest,
         scheduler: schedulerTest,
-        overall: qboTest && genesysTest && schedulerTest,
+        overall: genesysTest && schedulerTest,
       },
     });
   } catch (error) {
