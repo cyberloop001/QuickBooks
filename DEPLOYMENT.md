@@ -297,16 +297,6 @@ The system automatically runs monthly billing jobs:
 - **Timezone**: Configurable via `BILLING_TIMEZONE`
 - **Monitoring**: Check `/api/v1/dashboard/system-status`
 
-### Manual Job Execution
-
-```bash
-# Test billing job (dry run)
-curl -X POST "https://your-domain.com/api/v1/dashboard/billing-jobs/run?startDate=2025-01-01&endDate=2025-01-31&isDryRun=true"
-
-# Run actual billing job
-curl -X POST "https://your-domain.com/api/v1/dashboard/billing-jobs/run?startDate=2025-01-01&endDate=2025-01-31"
-```
-
 ## 🚨 **Troubleshooting**
 
 ### Common Issues
@@ -354,10 +344,6 @@ GET /api/v1/health
 
 # System status
 GET /api/v1/dashboard/system-status
-
-# Test connections
-POST /api/v1/dashboard/system-status/test
-```
 
 ## 📈 **Performance Optimization**
 

@@ -246,72 +246,6 @@ router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
 });
 
 /**
- * POST /dashboard/billing-jobs/run - Run manual billing job
- */
-router.post(
-  "/billing-jobs/run",
-  [
-    query("startDate")
-      .isISO8601()
-      .withMessage("Start date must be a valid ISO date"),
-    query("endDate")
-      .isISO8601()
-      .withMessage("End date must be a valid ISO date"),
-    query("clientId")
-      .optional()
-      .isString()
-      .withMessage("Client ID must be a string"),
-    query("isDryRun")
-      .optional()
-      .isBoolean()
-      .withMessage("isDryRun must be a boolean"),
-  ],
-  async (req: Request, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          errors: errors.array(),
-        });
-      }
-
-      const { startDate, endDate, clientId, isDryRun = false } = req.query;
-
-      const start = new Date(startDate as string);
-      const end = new Date(endDate as string);
-
-      // Validate date range
-      if (start >= end) {
-        return res.status(400).json({
-          success: false,
-          error: "Start date must be before end date",
-        });
-      }
-
-      const result = await getJobScheduler().runManualBilling(
-        start,
-        end,
-        clientId as string,
-        isDryRun as boolean
-      );
-
-      res.json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      logger.error("Failed to run manual billing job", { error });
-      res.status(500).json({
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to run billing job",
-      });
-    }
-  }
-);
-
-/**
  * GET /dashboard/system-status - Get comprehensive system status
  */
 router.get("/system-status", async (req: Request, res: Response) => {
@@ -357,34 +291,6 @@ router.get("/system-status", async (req: Request, res: Response) => {
       success: false,
       error:
         error instanceof Error ? error.message : "Failed to get system status",
-    });
-  }
-});
-
-/**
- * POST /dashboard/system-status/test - Test system connections
- */
-router.post("/system-status/test", async (req: Request, res: Response) => {
-  try {
-    const [genesysTest, schedulerTest] = await Promise.all([
-      getGenesysService().testConnection(),
-      getJobScheduler().testBillingScheduler(),
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        genesys: genesysTest,
-        scheduler: schedulerTest,
-        overall: genesysTest && schedulerTest,
-      },
-    });
-  } catch (error) {
-    logger.error("Failed to test system connections", { error });
-    res.status(500).json({
-      success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to test connections",
     });
   }
 });

@@ -142,7 +142,6 @@ BILLING_CURRENCY=USD
 ### Billing Management
 
 - `GET /api/v1/billing/jobs` - Get billing jobs
-- `POST /api/v1/dashboard/billing-jobs/run` - Run manual billing
 - `GET /api/v1/billing/summary` - Billing summary
 
 ## 🎯 **Key Features**
@@ -277,12 +276,6 @@ BILLING_CURRENCY=USD
 ### Manual Testing
 
 ```bash
-# Test system connections
-curl -X POST /api/v1/dashboard/system-status/test
-
-# Test billing job (dry run)
-curl -X POST "/api/v1/dashboard/billing-jobs/run?startDate=2025-01-01&endDate=2025-01-31&isDryRun=true"
-
 # Check system health
 curl /api/v1/dashboard/system-status
 ```

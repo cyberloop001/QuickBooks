@@ -33,30 +33,6 @@ export class JobScheduler {
   }
 
   /**
-   * Test the billing scheduler
-   */
-  async testBillingScheduler(): Promise<boolean> {
-    return this.billingScheduler.testScheduler();
-  }
-
-  /**
-   * Run manual billing job
-   */
-  async runManualBilling(
-    startDate: Date,
-    endDate: Date,
-    clientId?: string,
-    isDryRun: boolean = false
-  ) {
-    return this.billingScheduler.runBillingForPeriod(
-      startDate,
-      endDate,
-      clientId,
-      isDryRun
-    );
-  }
-
-  /**
    * Stop all schedulers
    */
   stop(): void {

@@ -246,25 +246,4 @@ export class BillingScheduler {
       });
     }
   }
-
-  /**
-   * Test the scheduler
-   */
-  async testScheduler(): Promise<boolean> {
-    try {
-      logger.info("Testing billing scheduler...");
-
-      // Run a test billing job for the last 7 days
-      const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      await this.runBillingForPeriod(startDate, endDate, undefined, true);
-
-      logger.info("Billing scheduler test completed successfully");
-      return true;
-    } catch (error) {
-      logger.error("Billing scheduler test failed", { error });
-      return false;
-    }
-  }
 }

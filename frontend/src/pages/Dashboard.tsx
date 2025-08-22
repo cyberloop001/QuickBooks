@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  Activity,
   CreditCard,
   Users,
   Phone,
@@ -74,7 +73,6 @@ export function Dashboard() {
   const [billingJobs, setBillingJobs] = useState<BillingJob[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [qboStatus, setQBOStatus] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
 
   useEffect(() => {
@@ -117,52 +115,6 @@ export function Dashboard() {
     }
   };
 
-  const testSystemConnections = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/v1/dashboard/system-status/test", {
-        method: "POST",
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success("System connections tested successfully");
-        fetchDashboardData(); // Refresh data
-      } else {
-        toast.error("System connection test failed");
-      }
-    } catch (error) {
-      toast.error("Failed to test system connections");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runManualBilling = async () => {
-    const startDate = format(new Date().setDate(1), "yyyy-MM-dd");
-    const endDate = format(new Date(), "yyyy-MM-dd");
-
-    setLoading(true);
-    try {
-      const response = await fetch(
-        `/api/v1/dashboard/billing-jobs/run?startDate=${startDate}&endDate=${endDate}&isDryRun=true`,
-        { method: "POST" }
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success("Manual billing job started successfully");
-        fetchDashboardData(); // Refresh data
-      } else {
-        toast.error("Failed to start manual billing job");
-      }
-    } catch (error) {
-      toast.error("Failed to start manual billing job");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "COMPLETED":
@@ -197,24 +149,6 @@ export function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-gray-600">System overview and monitoring</p>
-        </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={testSystemConnections}
-            disabled={loading}
-            className="px-4 py-2 border flex items-center border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Activity className="h-4 w-4 mr-2" />
-            Test Connections
-          </button>
-          <button
-            onClick={runManualBilling}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center"
-          >
-            <Calendar className="h-4 w-4 mr-2" />
-            Run Billing
-          </button>
         </div>
       </div>
 
