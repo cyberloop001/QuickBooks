@@ -16,35 +16,11 @@ export class CustomerProfile {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
-  name!: string;
-
   @Column({ unique: true, nullable: true })
   qboCustomerId!: string;
 
   @Column({ type: "text", array: true, default: [] })
   genesysQueueNames!: string[];
-
-  @Column({ nullable: true })
-  email!: string;
-
-  @Column({ nullable: true })
-  phone!: string;
-
-  @Column({ nullable: true })
-  address!: string;
-
-  @Column({ nullable: true })
-  city!: string;
-
-  @Column({ nullable: true })
-  state!: string;
-
-  @Column({ nullable: true })
-  zipCode!: string;
-
-  @Column({ nullable: true })
-  country!: string;
 
   @Column({ default: true })
   isActive!: boolean;
@@ -58,24 +34,52 @@ export class CustomerProfile {
   @Column({ type: "text", nullable: true })
   notes!: string;
 
+  // QBO Customer Fields (Required for QBO integration)
+  @Column({ type: "text" })
+  qboDisplayName!: string; // Required field for QBO
+
   @Column({ type: "text", nullable: true })
   qboCompanyName!: string;
 
   @Column({ type: "text", nullable: true })
-  qboDisplayName!: string;
+  qboGivenName!: string;
 
+  @Column({ type: "text", nullable: true })
+  qboFamilyName!: string;
+
+  @Column({ type: "text", nullable: true })
+  qboMiddleName!: string;
+
+  @Column({ type: "text", nullable: true })
+  qboTitle!: string;
+
+  @Column({ type: "text", nullable: true })
+  qboSuffix!: string;
+
+  // QBO Contact Fields
   @Column({ type: "text", nullable: true })
   qboPrimaryEmailAddr!: string;
 
   @Column({ type: "text", nullable: true })
   qboPrimaryPhone!: string;
 
+  // QBO Address Fields (replacing old address structure)
   @Column({ type: "text", nullable: true })
-  qboBillAddr!: string;
+  qboLine1!: string;
 
   @Column({ type: "text", nullable: true })
-  qboShipAddr!: string;
+  qboCity!: string;
 
+  @Column({ type: "text", nullable: true })
+  qboCountrySubDivisionCode!: string;
+
+  @Column({ type: "text", nullable: true })
+  qboPostalCode!: string;
+
+  @Column({ type: "text", nullable: true })
+  qboCountry!: string;
+
+  // QBO Metadata
   @Column({ type: "json", nullable: true })
   qboMetadata!: any;
 
@@ -95,17 +99,26 @@ export class CustomerProfile {
   // Helper methods
   getFullAddress(): string {
     const parts = [
-      this.address,
-      this.city,
-      this.state,
-      this.zipCode,
-      this.country,
-    ];
-    return parts.filter((part) => part).join(", ");
+      this.qboLine1,
+      this.qboCity,
+      this.qboCountrySubDivisionCode,
+      this.qboPostalCode,
+      this.qboCountry,
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(", ") : "No address provided";
   }
 
   getDisplayName(): string {
-    return this.qboDisplayName || this.name;
+    if (this.qboCompanyName) {
+      return this.qboCompanyName;
+    }
+    if (this.qboGivenName && this.qboFamilyName) {
+      const parts = [this.qboTitle, this.qboGivenName, this.qboMiddleName, this.qboFamilyName, this.qboSuffix]
+        .filter(Boolean);
+      return parts.join(" ");
+    }
+    return this.qboDisplayName;
   }
 
   getFormattedRate(): string {
@@ -121,20 +134,21 @@ export class CustomerProfile {
   }
 
   isComplete(): boolean {
-    return !!(this.name && this.hasGenesysQueues() && this.email);
+    return !!(
+      this.qboDisplayName &&
+      this.genesysQueueNames &&
+      this.genesysQueueNames.length > 0 &&
+      this.ratePerMinute > 0
+    );
   }
 
   getGenesysQueueNamesString(): string {
-    return this.genesysQueueNames
-      ? this.genesysQueueNames.join(", ")
-      : "No queues assigned";
+    return this.genesysQueueNames ? this.genesysQueueNames.join(", ") : "No queues assigned";
   }
 
   // Check if a specific queue name belongs to this customer
   hasQueue(queueName: string): boolean {
-    return this.genesysQueueNames
-      ? this.genesysQueueNames.includes(queueName)
-      : false;
+    return this.genesysQueueNames ? this.genesysQueueNames.includes(queueName) : false;
   }
 
   // Add a new queue name
@@ -150,9 +164,7 @@ export class CustomerProfile {
   // Remove a queue name
   removeQueue(queueName: string): void {
     if (this.genesysQueueNames) {
-      this.genesysQueueNames = this.genesysQueueNames.filter(
-        (q) => q !== queueName
-      );
+      this.genesysQueueNames = this.genesysQueueNames.filter(q => q !== queueName);
     }
   }
 }

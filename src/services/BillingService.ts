@@ -436,7 +436,7 @@ export class BillingService {
 
           logger.info("Invoice created successfully", {
             clientId: client.id,
-            clientName: client.name,
+            clientName: client.qboDisplayName,
             invoiceId,
             totalAmount,
           });
@@ -444,12 +444,12 @@ export class BillingService {
           logger.error("Failed to create invoice", {
             error: invoiceError,
             clientId: client.id,
-            clientName: client.name,
+            clientName: client.qboDisplayName,
           });
 
           return {
             clientId: client.id,
-            clientName: client.name,
+            clientName: client.qboDisplayName,
             totalCalls: 1,
             totalMinutes,
             totalAmount,
@@ -464,7 +464,7 @@ export class BillingService {
 
       return {
         clientId: client.id,
-        clientName: client.name,
+        clientName: client.qboDisplayName,
         totalCalls: 1,
         totalMinutes,
         totalAmount,
@@ -515,7 +515,7 @@ export class BillingService {
           value: client.qboCustomerId,
         },
         DocNumber: `INV-${billingJob.jobId}-${client.id}`,
-        PrivateNote: `Phone usage billing for ${client.name}. Job ID: ${billingJob.jobId}`,
+        PrivateNote: `Phone usage billing for ${client.qboDisplayName}. Job ID: ${billingJob.jobId}`,
         ShipFromAddr: companyInfo?.CompanyAddr || {
           Line1: "Default Company Address",
           City: "Default City",
@@ -523,13 +523,13 @@ export class BillingService {
           Country: "US",
         },
         BillEmail: {
-          Address: client.email || companyInfo?.Email?.Address,
+          Address: client.qboPrimaryEmailAddr || companyInfo?.Email?.Address,
         },
         ShipAddr: {
-          Line1: client.address || "No address provided",
-          City: client.city || "No city provided",
-          CountrySubDivisionCode: client.state || "CA",
-          Country: client.country || "US",
+          Line1: client.qboLine1 || "No address provided",
+          City: client.qboCity || "No city provided",
+          CountrySubDivisionCode: client.qboCountrySubDivisionCode || "CA",
+          Country: client.qboCountry || "US",
         },
       };
 

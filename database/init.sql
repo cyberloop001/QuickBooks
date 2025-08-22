@@ -24,26 +24,34 @@ END $$;
 -- Table: customer_profiles (NEW - replaces clients table)
 CREATE TABLE IF NOT EXISTS customer_profiles (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "name" text NOT NULL,
   "qboCustomerId" text UNIQUE,
   "genesysQueueNames" text[] NOT NULL DEFAULT '{}',
-  "email" text,
-  "phone" text,
-  "address" text,
-  "city" text,
-  "state" text,
-  "zipCode" text,
-  "country" text,
   "isActive" boolean NOT NULL DEFAULT true,
   "ratePerMinute" numeric(10,2) NOT NULL DEFAULT 1.00,
   "taxCode" text,
   "notes" text,
+  
+  -- QBO Customer Fields (Required for QBO integration)
+  "qboDisplayName" text NOT NULL, -- Required field for QBO
   "qboCompanyName" text,
-  "qboDisplayName" text,
+  "qboGivenName" text,
+  "qboFamilyName" text,
+  "qboMiddleName" text,
+  "qboTitle" text,
+  "qboSuffix" text,
+  
+  -- QBO Contact Fields
   "qboPrimaryEmailAddr" text,
   "qboPrimaryPhone" text,
-  "qboBillAddr" text,
-  "qboShipAddr" text,
+  
+  -- QBO Address Fields (replacing old address structure)
+  "qboLine1" text,
+  "qboCity" text,
+  "qboCountrySubDivisionCode" text,
+  "qboPostalCode" text,
+  "qboCountry" text,
+  
+  -- QBO Metadata
   "qboMetadata" json,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()

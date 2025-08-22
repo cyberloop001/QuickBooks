@@ -4,49 +4,63 @@ import { PhoneUsage } from "../entities/PhoneUsage";
 import { logger } from "../utils/logger";
 
 export interface CreateCustomerProfileData {
-  name: string;
   qboCustomerId?: string;
   genesysQueueNames: string[];
-  email?: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-  country?: string;
   ratePerMinute?: number;
   taxCode?: string;
   notes?: string;
   isActive?: boolean;
+
+  // QBO Customer Fields
+  qboDisplayName: string; // Required
   qboCompanyName?: string;
-  qboDisplayName?: string;
+  qboGivenName?: string;
+  qboFamilyName?: string;
+  qboMiddleName?: string;
+  qboTitle?: string;
+  qboSuffix?: string;
+
+  // QBO Contact Fields
   qboPrimaryEmailAddr?: string;
   qboPrimaryPhone?: string;
-  qboBillAddr?: string;
-  qboShipAddr?: string;
+
+  // QBO Address Fields
+  qboLine1?: string;
+  qboCity?: string;
+  qboCountrySubDivisionCode?: string;
+  qboPostalCode?: string;
+  qboCountry?: string;
 }
 
 export interface UpdateCustomerProfileData {
-  name?: string;
   qboCustomerId?: string;
   genesysQueueNames?: string[];
-  email?: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-  country?: string;
   ratePerMinute?: number;
   taxCode?: string;
   notes?: string;
   isActive?: boolean;
-  qboCompanyName?: string;
+
+  // QBO Customer Fields
   qboDisplayName?: string;
+  qboCompanyName?: string;
+  qboGivenName?: string;
+  qboFamilyName?: string;
+  qboMiddleName?: string;
+  qboTitle?: string;
+  qboSuffix?: string;
+
+  // QBO Contact Fields
   qboPrimaryEmailAddr?: string;
   qboPrimaryPhone?: string;
-  qboBillAddr?: string;
-  qboShipAddr?: string;
+
+  // QBO Address Fields
+  qboLine1?: string;
+  qboCity?: string;
+  qboCountrySubDivisionCode?: string;
+  qboPostalCode?: string;
+  qboCountry?: string;
+
+  // QBO Metadata
   qboMetadata?: any;
 }
 
@@ -115,11 +129,12 @@ export class CustomerProfileService {
       let searchConditions: any[] = [];
       if (filters.search) {
         searchConditions = [
-          { name: Like(`%${filters.search}%`) },
-          { qboCustomerId: Like(`%${filters.search}%`) },
-          { email: Like(`%${filters.search}%`) },
-          { qboCompanyName: Like(`%${filters.search}%`) },
           { qboDisplayName: Like(`%${filters.search}%`) },
+          { qboCustomerId: Like(`%${filters.search}%`) },
+          { qboPrimaryEmailAddr: Like(`%${filters.search}%`) },
+          { qboCompanyName: Like(`%${filters.search}%`) },
+          { qboGivenName: Like(`%${filters.search}%`) },
+          { qboFamilyName: Like(`%${filters.search}%`) },
         ];
       }
 
@@ -200,7 +215,7 @@ export class CustomerProfileService {
 
       logger.info("Retrieved customer profile by ID", {
         id,
-        profileName: profile.name,
+        profileName: profile.qboDisplayName,
       });
       return profile;
     } catch (error) {
@@ -224,7 +239,7 @@ export class CustomerProfileService {
       if (profile) {
         logger.info("Retrieved customer profile by QBO Customer ID", {
           qboCustomerId,
-          profileName: profile.name,
+          profileName: profile.qboDisplayName,
         });
       }
 
@@ -253,7 +268,7 @@ export class CustomerProfileService {
       if (profile) {
         logger.info("Retrieved customer profile by queue name", {
           queueName,
-          profileName: profile.name,
+          profileName: profile.qboDisplayName,
         });
       }
 
@@ -301,7 +316,7 @@ export class CustomerProfileService {
 
           if (existingProfile) {
             throw new Error(
-              `Queue name "${queueName}" is already assigned to customer "${existingProfile.name}"`
+              `Queue name "${queueName}" is already assigned to customer "${existingProfile.qboDisplayName}"`
             );
           }
         }
@@ -318,7 +333,7 @@ export class CustomerProfileService {
 
       logger.info("Created new customer profile", {
         id: savedProfile.id,
-        name: savedProfile.name,
+        name: savedProfile.qboDisplayName,
         queueNames: savedProfile.genesysQueueNames,
       });
 
@@ -372,7 +387,7 @@ export class CustomerProfileService {
 
             if (existingProfile) {
               throw new Error(
-                `Queue name "${queueName}" is already assigned to customer "${existingProfile.name}"`
+                `Queue name "${queueName}" is already assigned to customer "${existingProfile.qboDisplayName}"`
               );
             }
           }
@@ -385,7 +400,7 @@ export class CustomerProfileService {
 
       logger.info("Updated customer profile", {
         id,
-        name: updatedProfile.name,
+        name: updatedProfile.qboDisplayName,
         updateData,
       });
 
@@ -423,7 +438,10 @@ export class CustomerProfileService {
 
       await this.customerProfileRepository.remove(profile);
 
-      logger.info("Deleted customer profile", { id, name: profile.name });
+      logger.info("Deleted customer profile", {
+        id,
+        name: profile.qboDisplayName,
+      });
     } catch (error) {
       logger.error("Failed to delete customer profile", { error, id });
       throw error;
@@ -506,7 +524,7 @@ export class CustomerProfileService {
     try {
       const profiles = await this.customerProfileRepository.find({
         where: { isActive: true },
-        order: { name: "ASC" },
+        order: { qboDisplayName: "ASC" },
       });
 
       logger.info("Retrieved active customer profiles", {
@@ -559,14 +577,14 @@ export class CustomerProfileService {
     try {
       const profiles = await this.customerProfileRepository.find({
         where: [
-          { name: Like(`%${query}%`) },
+          { qboDisplayName: Like(`%${query}%`) },
           { qboCustomerId: Like(`%${query}%`) },
           { qboCompanyName: Like(`%${query}%`) },
-          { qboDisplayName: Like(`%${query}%`) },
-          { email: Like(`%${query}%`) },
+          { qboGivenName: Like(`%${query}%`) },
+          { qboFamilyName: Like(`%${query}%`) },
         ],
         take: limit,
-        order: { name: "ASC" },
+        order: { qboDisplayName: "ASC" },
       });
 
       logger.info("Searched customer profiles", {
@@ -625,12 +643,11 @@ export class CustomerProfileService {
         qboDisplayName: qboData.DisplayName,
         qboPrimaryEmailAddr: qboData.PrimaryEmailAddr?.Address,
         qboPrimaryPhone: qboData.PrimaryPhone?.FreeFormNumber,
-        qboBillAddr: qboData.BillAddr
-          ? JSON.stringify(qboData.BillAddr)
-          : undefined,
-        qboShipAddr: qboData.ShipAddr
-          ? JSON.stringify(qboData.ShipAddr)
-          : undefined,
+        qboLine1: qboData.BillAddr?.Line1,
+        qboCity: qboData.BillAddr?.City,
+        qboCountrySubDivisionCode: qboData.BillAddr?.CountrySubDivisionCode,
+        qboPostalCode: qboData.BillAddr?.PostalCode,
+        qboCountry: qboData.BillAddr?.Country,
         qboMetadata: qboData,
       };
 
@@ -639,7 +656,7 @@ export class CustomerProfileService {
 
       logger.info("Synced QBO data to customer profile", {
         profileId,
-        profileName: updatedProfile.name,
+        profileName: updatedProfile.qboDisplayName,
         qboCustomerId: updatedProfile.qboCustomerId,
       });
 

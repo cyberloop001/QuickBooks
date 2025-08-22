@@ -15,24 +15,33 @@ import { toast } from "react-hot-toast";
 
 interface CustomerProfile {
   id: string;
-  name: string;
   qboCustomerId?: string;
   genesysQueueNames: string[];
-  email?: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-  country?: string;
   isActive: boolean;
   ratePerMinute: number;
   taxCode?: string;
   notes?: string;
+
+  // QBO Customer Fields
+  qboDisplayName: string; // Required
   qboCompanyName?: string;
-  qboDisplayName?: string;
+  qboGivenName?: string;
+  qboFamilyName?: string;
+  qboMiddleName?: string;
+  qboTitle?: string;
+  qboSuffix?: string;
+
+  // QBO Contact Fields
   qboPrimaryEmailAddr?: string;
   qboPrimaryPhone?: string;
+
+  // QBO Address Fields
+  qboLine1?: string;
+  qboCity?: string;
+  qboCountrySubDivisionCode?: string;
+  qboPostalCode?: string;
+  qboCountry?: string;
+  qboMetadata?: any;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,17 +105,42 @@ export function CustomerProfiles() {
         params.append("hasQboCustomerId", filters.hasQboCustomerId.toString());
       if (filters.hasGenesysQueues !== undefined)
         params.append("hasGenesysQueues", filters.hasGenesysQueues.toString());
-      if (filters.queueName) params.append("queueName", filters.queueName);
+      if (
+        filters.queueName &&
+        filters.queueName !== "complete" &&
+        filters.queueName !== "partial" &&
+        filters.queueName !== "minimal"
+      ) {
+        params.append("queueName", filters.queueName);
+      }
 
       const response = await fetch(`/api/v1/customer-profiles?${params}`);
       const data = await response.json();
 
       if (data.success) {
-        setCustomerProfiles(data.data);
+        let filteredProfiles = data.data;
+
+        // Apply profile completeness filter on the frontend
+        if (filters.queueName === "complete") {
+          filteredProfiles = filteredProfiles.filter(
+            (p: CustomerProfile) => getCompletionScore(p) >= 80
+          );
+        } else if (filters.queueName === "partial") {
+          filteredProfiles = filteredProfiles.filter(
+            (p: CustomerProfile) =>
+              getCompletionScore(p) >= 40 && getCompletionScore(p) < 80
+          );
+        } else if (filters.queueName === "minimal") {
+          filteredProfiles = filteredProfiles.filter(
+            (p: CustomerProfile) => getCompletionScore(p) < 40
+          );
+        }
+
+        setCustomerProfiles(filteredProfiles);
         setPagination((prev) => ({
           ...prev,
-          total: data.pagination.total,
-          pages: data.pagination.pages,
+          total: filteredProfiles.length,
+          pages: Math.ceil(filteredProfiles.length / pagination.limit),
         }));
       } else {
         toast.error("Failed to fetch customer profiles");
@@ -262,31 +296,54 @@ export function CustomerProfiles() {
     let score = 0;
     let total = 0;
 
-    if (profile.name) {
+    // Basic profile information
+    if (profile.qboDisplayName) {
       score++;
       total++;
     }
-    if (profile.qboCustomerId) {
+    if (profile.qboCompanyName) {
       score++;
       total++;
     }
+    if (profile.qboGivenName) {
+      score++;
+      total++;
+    }
+    if (profile.qboFamilyName) {
+      score++;
+      total++;
+    }
+    if (profile.qboPrimaryEmailAddr) {
+      score++;
+      total++;
+    }
+    if (profile.qboPrimaryPhone) {
+      score++;
+      total++;
+    }
+    if (profile.qboLine1) {
+      score++;
+      total++;
+    }
+    if (profile.qboCity) {
+      score++;
+      total++;
+    }
+    if (profile.qboCountrySubDivisionCode) {
+      score++;
+      total++;
+    }
+    if (profile.qboPostalCode) {
+      score++;
+      total++;
+    }
+    if (profile.qboCountry) {
+      score++;
+      total++;
+    }
+
+    // Genesys integration
     if (profile.genesysQueueNames && profile.genesysQueueNames.length > 0) {
-      score++;
-      total++;
-    }
-    if (profile.email) {
-      score++;
-      total++;
-    }
-    if (profile.phone) {
-      score++;
-      total++;
-    }
-    if (profile.address) {
-      score++;
-      total++;
-    }
-    if (profile.ratePerMinute > 0) {
       score++;
       total++;
     }
@@ -317,7 +374,7 @@ export function CustomerProfiles() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="p-5">
             <div className="flex items-center">
@@ -400,6 +457,30 @@ export function CustomerProfiles() {
             </div>
           </div>
         </div>
+
+        <div className="bg-white overflow-hidden shadow rounded-lg">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <Edit className="h-6 w-6 text-orange-400" />
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 truncate">
+                    Complete Profiles
+                  </dt>
+                  <dd className="text-lg font-medium text-gray-900">
+                    {
+                      customerProfiles.filter(
+                        (p) => getCompletionScore(p) >= 80
+                      ).length
+                    }
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -414,7 +495,7 @@ export function CustomerProfiles() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Search
@@ -502,6 +583,24 @@ export function CustomerProfiles() {
               <option value="false">No Queues</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Profile Completeness
+            </label>
+            <select
+              value={filters.queueName || ""}
+              onChange={(e) =>
+                handleFilterChange("queueName", e.target.value || undefined)
+              }
+              className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+            >
+              <option value="">All Profiles</option>
+              <option value="complete">Complete (80%+)</option>
+              <option value="partial">Partial (40-79%)</option>
+              <option value="minimal">Minimal (0-39%)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -574,20 +673,25 @@ export function CustomerProfiles() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {profile.name}
+                          {profile.qboDisplayName}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {profile.email || "No email"}
+                          {profile.qboPrimaryEmailAddr || "No email"}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {profile.address
-                            ? `${profile.address}, ${profile.city || ""}, ${
-                                profile.state || ""
+                          {profile.qboLine1
+                            ? `${profile.qboLine1}, ${profile.qboCity || ""}, ${
+                                profile.qboCountrySubDivisionCode || ""
                               }`
                             : "No address"}
                         </div>
+                        {profile.qboCompanyName && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            QBO: {profile.qboCompanyName}
+                          </div>
+                        )}
                         <div className="mt-1">
-                          <div className="flex items-center">
+                          <div className="flex items-center group relative">
                             <div className="text-xs text-gray-400 mr-2">
                               Profile Complete:
                             </div>
@@ -602,6 +706,44 @@ export function CustomerProfiles() {
                             <span className="text-xs text-gray-500 ml-2">
                               {getCompletionScore(profile)}%
                             </span>
+
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-2 px-3 whitespace-nowrap z-10">
+                              <div className="font-medium mb-1">
+                                Profile Completion Details:
+                              </div>
+                              <div>
+                                • QBO Display Name:{" "}
+                                {profile.qboDisplayName ? "✓" : "✗"}
+                              </div>
+                              <div>
+                                • QBO Company:{" "}
+                                {profile.qboCompanyName ? "✓" : "✗"}
+                              </div>
+                              <div>
+                                • QBO Personal:{" "}
+                                {profile.qboGivenName ? "✓" : "✗"}{" "}
+                                {profile.qboFamilyName ? "✓" : "✗"}
+                              </div>
+                              <div>
+                                • QBO Contact:{" "}
+                                {profile.qboPrimaryEmailAddr ? "✓" : "✗"}{" "}
+                                {profile.qboPrimaryPhone ? "✓" : "✗"}
+                              </div>
+                              <div>
+                                • QBO Address: {profile.qboLine1 ? "✓" : "✗"}{" "}
+                                {profile.qboCity ? "✓" : "✗"}
+                              </div>
+                              <div>
+                                • Genesys:{" "}
+                                {profile.genesysQueueNames?.length > 0
+                                  ? "✓"
+                                  : "✗"}
+                              </div>
+                              <div className="mt-1 text-gray-300">
+                                Hover for details
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -771,20 +913,32 @@ function CustomerProfileModal({
   onClose,
 }: CustomerProfileModalProps) {
   const [formData, setFormData] = useState({
-    name: profile?.name || "",
     qboCustomerId: profile?.qboCustomerId || "",
     genesysQueueNames: profile?.genesysQueueNames || [],
-    email: profile?.email || "",
-    phone: profile?.phone || "",
-    address: profile?.address || "",
-    city: profile?.city || "",
-    state: profile?.state || "",
-    zipCode: profile?.zipCode || "",
-    country: profile?.country || "US",
     ratePerMinute: profile?.ratePerMinute || 1.0,
     taxCode: profile?.taxCode || "",
     notes: profile?.notes || "",
     isActive: profile?.isActive ?? true,
+
+    // QBO Customer Fields
+    qboDisplayName: profile?.qboDisplayName || "",
+    qboCompanyName: profile?.qboCompanyName || "",
+    qboGivenName: profile?.qboGivenName || "",
+    qboFamilyName: profile?.qboFamilyName || "",
+    qboMiddleName: profile?.qboMiddleName || "",
+    qboTitle: profile?.qboTitle || "",
+    qboSuffix: profile?.qboSuffix || "",
+
+    // QBO Contact Fields
+    qboPrimaryEmailAddr: profile?.qboPrimaryEmailAddr || "",
+    qboPrimaryPhone: profile?.qboPrimaryPhone || "",
+
+    // QBO Address Fields
+    qboLine1: profile?.qboLine1 || "",
+    qboCity: profile?.qboCity || "",
+    qboCountrySubDivisionCode: profile?.qboCountrySubDivisionCode || "",
+    qboPostalCode: profile?.qboPostalCode || "",
+    qboCountry: profile?.qboCountry || "US",
   });
 
   const [newQueue, setNewQueue] = useState("");
@@ -794,6 +948,11 @@ function CustomerProfileModal({
 
     if (formData.genesysQueueNames.length === 0) {
       toast.error("At least one Genesys queue name is required");
+      return;
+    }
+
+    if (!formData.qboDisplayName.trim()) {
+      toast.error("QBO Display Name is required for QuickBooks integration");
       return;
     }
 
@@ -841,16 +1000,20 @@ function CustomerProfileModal({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">
-                Company Name *
+                QBO Display Name *
               </label>
               <input
                 type="text"
                 required
-                value={formData.name}
+                value={formData.qboDisplayName}
                 onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, name: e.target.value }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboDisplayName: e.target.value,
+                  }))
                 }
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Required for QBO integration"
               />
             </div>
 
@@ -874,13 +1037,16 @@ function CustomerProfileModal({
 
             <div>
               <label className="block text-sm font-medium text-gray-700">
-                Email
+                QBO Company Name
               </label>
               <input
-                type="email"
-                value={formData.email}
+                type="text"
+                value={formData.qboCompanyName}
                 onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, email: e.target.value }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboCompanyName: e.target.value,
+                  }))
                 }
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
                 placeholder="Optional"
@@ -889,13 +1055,124 @@ function CustomerProfileModal({
 
             <div>
               <label className="block text-sm font-medium text-gray-700">
-                Phone
+                QBO Given Name
               </label>
               <input
                 type="text"
-                value={formData.phone}
+                value={formData.qboGivenName}
                 onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, phone: e.target.value }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboGivenName: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional - First name"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Family Name
+              </label>
+              <input
+                type="text"
+                value={formData.qboFamilyName}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboFamilyName: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional - Last name"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Middle Name
+              </label>
+              <input
+                type="text"
+                value={formData.qboMiddleName}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboMiddleName: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Title
+              </label>
+              <input
+                type="text"
+                value={formData.qboTitle}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboTitle: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional - Mr, Mrs, Dr, etc."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Suffix
+              </label>
+              <input
+                type="text"
+                value={formData.qboSuffix}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboSuffix: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional - Jr, Sr, III, etc."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Primary Email
+              </label>
+              <input
+                type="email"
+                value={formData.qboPrimaryEmailAddr}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboPrimaryEmailAddr: e.target.value,
+                  }))
+                }
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Optional"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                QBO Primary Phone
+              </label>
+              <input
+                type="text"
+                value={formData.qboPrimaryPhone}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    qboPrimaryPhone: e.target.value,
+                  }))
                 }
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
                 placeholder="Optional"
@@ -938,85 +1215,102 @@ function CustomerProfileModal({
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Address
-            </label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, address: e.target.value }))
-              }
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-              placeholder="Optional"
-            />
-          </div>
+          {/* QBO Address Fields */}
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">
+              QuickBooks Address Information
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Street Address (Line 1)
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboLine1}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboLine1: e.target.value,
+                    }))
+                  }
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Street address"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                City
-              </label>
-              <input
-                type="text"
-                value={formData.city}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, city: e.target.value }))
-                }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-                placeholder="Optional"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  City
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboCity}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboCity: e.target.value,
+                    }))
+                  }
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="City"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  State/Province
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboCountrySubDivisionCode}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboCountrySubDivisionCode: e.target.value,
+                    }))
+                  }
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="State or province code"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Postal Code
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboPostalCode}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboPostalCode: e.target.value,
+                    }))
+                  }
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Postal code"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Country
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboCountry}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboCountry: e.target.value,
+                    }))
+                  }
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Country code (e.g., US, CA)"
+                />
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                State
-              </label>
-              <input
-                type="text"
-                value={formData.state}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, state: e.target.value }))
-                }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-                placeholder="Optional"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                ZIP Code
-              </label>
-              <input
-                type="text"
-                value={formData.zipCode}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, zipCode: e.target.value }))
-                }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-                placeholder="Optional"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Country
-            </label>
-            <select
-              value={formData.country}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, country: e.target.value }))
-              }
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-            >
-              <option value="US">United States</option>
-              <option value="CA">Canada</option>
-              <option value="MX">Mexico</option>
-              <option value="UK">United Kingdom</option>
-              <option value="AU">Australia</option>
-            </select>
           </div>
 
           <div>
@@ -1235,6 +1529,51 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                       </div>
                     )
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* QBO Metadata Section */}
+            {stats.qboMetadata && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">
+                  QuickBooks Integration Details
+                </h4>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Company:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboCompanyName || "Not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Display Name:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboDisplayName || "Not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Primary Email:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboPrimaryEmailAddr || "Not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Primary Phone:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboPrimaryPhone || "Not set"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

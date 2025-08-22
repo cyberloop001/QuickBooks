@@ -437,20 +437,38 @@ async function migrateClientsToCustomerProfiles(connection: any) {
       try {
         await connection.query(`
           INSERT INTO customer_profiles (
-            "name", "qboCustomerId", "genesysQueueNames", "email", "phone", 
-            "address", "city", "state", "zipCode", "country", "isActive", 
-            "ratePerMinute", "taxCode", "notes", "createdAt", "updatedAt"
+            "qboCustomerId", "genesysQueueNames", "isActive", 
+            "ratePerMinute", "taxCode", "notes", "qboDisplayName",
+            "qboCompanyName", "qboGivenName", "qboFamilyName", 
+            "qboMiddleName", "qboTitle", "qboSuffix", 
+            "qboPrimaryEmailAddr", "qboPrimaryPhone", 
+            "qboLine1", "qboCity", "qboCountrySubDivisionCode", 
+            "qboPostalCode", "qboCountry", "createdAt", "updatedAt"
           )
           SELECT 
-            "name", "qboCustomerId", 
+            "qboCustomerId", 
             CASE 
               WHEN "genesysClientId" IS NOT NULL THEN ARRAY["genesysClientId"]
               ELSE ARRAY[]::text[]
             END as "genesysQueueNames",
-            "email", "phone", "address", "city", "state", "zipCode", "country",
-            "isActive", "ratePerMinute", "taxCode", "notes", "createdAt", "updatedAt"
+            "isActive", "ratePerMinute", "taxCode", "notes",
+            COALESCE("name", 'Unknown Customer') as "qboDisplayName",
+            "name" as "qboCompanyName",
+            NULL as "qboGivenName",
+            NULL as "qboFamilyName",
+            NULL as "qboMiddleName",
+            NULL as "qboTitle",
+            NULL as "qboSuffix",
+            "email" as "qboPrimaryEmailAddr",
+            "phone" as "qboPrimaryPhone",
+            "address" as "qboLine1",
+            "city" as "qboCity",
+            "state" as "qboCountrySubDivisionCode",
+            "zipCode" as "qboPostalCode",
+            "country" as "qboCountry",
+            "createdAt", "updatedAt"
           FROM clients
-          ON CONFLICT ("name") DO NOTHING
+          ON CONFLICT ("qboDisplayName") DO NOTHING
         `);
 
         logger.info("Successfully migrated clients data to customer_profiles");
