@@ -193,7 +193,7 @@ export function Dashboard() {
           <button
             onClick={testSystemConnections}
             disabled={loading}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+            className="px-4 py-2 border flex items-center border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
           >
             <Activity className="h-4 w-4 mr-2" />
             Test Connections
@@ -201,7 +201,7 @@ export function Dashboard() {
           <button
             onClick={runManualBilling}
             disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center"
           >
             <Calendar className="h-4 w-4 mr-2" />
             Run Billing
