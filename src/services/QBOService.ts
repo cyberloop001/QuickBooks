@@ -19,8 +19,10 @@ export interface QBOCompanyInfo {
   LegalName: string;
   CompanyAddr: any;
   CustomerCommunicationAddr: any;
+  CustomerCommunicationEmailAddr?: any;
   WebAddr: any;
   Email: any;
+  PrimaryPhone?: any;
   NameValue: any[];
   SupportedLanguages: string;
   Country: string;
@@ -29,6 +31,13 @@ export interface QBOCompanyInfo {
   MetaData: any;
   ReportPrefs: any;
   Preferences: any;
+  DefaultTimeZone?: string;
+  CompanyStartDate?: string;
+  domain?: string;
+  sparse?: boolean;
+  time?: string;
+  success?: boolean;
+  SyncToken?: string;
 }
 
 export interface QBOInvoice {

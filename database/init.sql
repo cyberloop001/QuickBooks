@@ -4,33 +4,55 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Enum types for billing jobs
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'billingjobstatus') THEN
-    CREATE TYPE billingjobstatus AS ENUM ('pending','in_progress','completed','failed','cancelled');
+    CREATE TYPE billingjobstatus AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED');
   END IF;
 END $$;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'billingjobtype') THEN
-    CREATE TYPE billingjobtype AS ENUM ('monthly','manual','dry_run');
+    CREATE TYPE billingjobtype AS ENUM ('MONTHLY', 'MANUAL', 'DRY_RUN');
   END IF;
 END $$;
 
--- Table: clients
-CREATE TABLE IF NOT EXISTS clients (
+-- Enum types for client billing status
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'clientbillingstatus') THEN
+    CREATE TYPE clientbillingstatus AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'SKIPPED');
+  END IF;
+END $$;
+
+-- Table: customer_profiles (NEW - replaces clients table)
+CREATE TABLE IF NOT EXISTS customer_profiles (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "genesysClientId" text UNIQUE NOT NULL,
   "qboCustomerId" text UNIQUE,
-  "name" text NOT NULL,
-  "email" text,
-  "phone" text,
-  "address" text,
-  "city" text,
-  "state" text,
-  "zipCode" text,
-  "country" text,
+  "genesysQueueNames" text[] NOT NULL DEFAULT '{}',
   "isActive" boolean NOT NULL DEFAULT true,
   "ratePerMinute" numeric(10,2) NOT NULL DEFAULT 1.00,
   "taxCode" text,
   "notes" text,
+  
+  -- QBO Customer Fields (Required for QBO integration)
+  "qboDisplayName" text NOT NULL, -- Required field for QBO
+  "qboCompanyName" text,
+  "qboGivenName" text,
+  "qboFamilyName" text,
+  "qboMiddleName" text,
+  "qboTitle" text,
+  "qboSuffix" text,
+  
+  -- QBO Contact Fields
+  "qboPrimaryEmailAddr" text,
+  "qboPrimaryPhone" text,
+  
+  -- QBO Address Fields (replacing old address structure)
+  "qboLine1" text,
+  "qboCity" text,
+  "qboCountrySubDivisionCode" text,
+  "qboPostalCode" text,
+  "qboCountry" text,
+  
+  -- QBO Metadata
+  "qboMetadata" json,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
@@ -39,30 +61,51 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS billing_jobs (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   "jobId" text UNIQUE NOT NULL,
-  "type" billingjobtype NOT NULL,
-  "status" billingjobstatus NOT NULL DEFAULT 'pending',
-  "clientId" uuid REFERENCES clients("id") ON DELETE SET NULL,
-  "billingPeriodStart" date NOT NULL,
-  "billingPeriodEnd" date NOT NULL,
-  "startedAt" timestamptz NOT NULL,
-  "completedAt" timestamptz,
+  "type" billingjobtype NOT NULL DEFAULT 'MONTHLY',
+  "status" billingjobstatus NOT NULL DEFAULT 'PENDING',
+  "startDate" timestamp NOT NULL,
+  "endDate" timestamp NOT NULL,
+  "totalCustomers" integer NOT NULL DEFAULT 0,
+  "totalInvoices" integer NOT NULL DEFAULT 0,
+  "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
+  "successfulInvoices" integer NOT NULL DEFAULT 0,
+  "failedInvoices" integer NOT NULL DEFAULT 0,
+  "error" text,
+  "metadata" json,
+  "startedAt" timestamp,
+  "completedAt" timestamp,
+  "customerProfileId" uuid,
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now()
+);
+
+-- Table: client_billing_results
+CREATE TABLE IF NOT EXISTS client_billing_results (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "billingJobId" uuid NOT NULL,
+  "customerProfileId" uuid NOT NULL,
+  "status" clientbillingstatus NOT NULL DEFAULT 'PENDING',
   "totalCalls" integer NOT NULL DEFAULT 0,
   "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0,
   "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
-  "invoicesCreated" integer NOT NULL DEFAULT 0,
-  "invoicesFailed" integer NOT NULL DEFAULT 0,
-  "errorMessage" text,
-  "metadata" jsonb,
-  "notes" text,
+  "qboInvoiceId" text,
+  "qboInvoiceNumber" text,
+  "error" text,
+  "metadata" json,
+  "processedAt" timestamp,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
-  "updatedAt" timestamptz NOT NULL DEFAULT now()
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_client_billing_results_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE CASCADE,
+  CONSTRAINT fk_client_billing_results_customer_profile FOREIGN KEY ("customerProfileId") REFERENCES customer_profiles("id") ON DELETE CASCADE
 );
 
 -- Table: phone_usage
 CREATE TABLE IF NOT EXISTS phone_usage (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   "callId" text NOT NULL,
-  "clientId" uuid NOT NULL REFERENCES clients("id") ON DELETE CASCADE,
+  "customerProfileId" uuid NOT NULL,
+  "genesysQueueName" text,
+  "genesysUserId" text,
   "startedAt" timestamptz NOT NULL,
   "endedAt" timestamptz NOT NULL,
   "billableSeconds" integer NOT NULL,
@@ -71,16 +114,37 @@ CREATE TABLE IF NOT EXISTS phone_usage (
   "billableMinutes" numeric(10,2) NOT NULL,
   "amount" numeric(10,2) NOT NULL,
   "isBilled" boolean NOT NULL DEFAULT false,
-  "billingJobId" uuid REFERENCES billing_jobs("id") ON DELETE SET NULL,
+  "billingJobId" uuid,
   "qboInvoiceId" text,
   "billedAt" timestamptz,
-  "createdAt" timestamptz NOT NULL DEFAULT now()
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_phone_usage_customer_profile FOREIGN KEY ("customerProfileId") REFERENCES customer_profiles("id") ON DELETE CASCADE,
+  CONSTRAINT fk_phone_usage_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE SET NULL
 );
 
 -- Helpful indexes
-CREATE INDEX IF NOT EXISTS idx_phone_usage_client_started_pst ON phone_usage ("clientId", "startedPst");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_started_pst ON phone_usage ("customerProfileId", "startedPst");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_billing_job ON phone_usage ("billingJobId");
-CREATE INDEX IF NOT EXISTS idx_billing_jobs_client_period ON billing_jobs ("clientId", "billingPeriodStart", "billingPeriodEnd");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_call_id ON phone_usage ("callId");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_id ON phone_usage ("customerProfileId");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_is_billed ON phone_usage ("isBilled");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_queue_name ON phone_usage ("genesysQueueName");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_user_id ON phone_usage ("genesysUserId");
+
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_job_id ON billing_jobs ("jobId");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_status ON billing_jobs ("status");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_type ON billing_jobs ("type");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_period ON billing_jobs ("startDate", "endDate");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_customer_profile ON billing_jobs ("customerProfileId");
+
+CREATE INDEX IF NOT EXISTS idx_client_billing_results_billing_job ON client_billing_results ("billingJobId");
+CREATE INDEX IF NOT EXISTS idx_client_billing_results_customer_profile ON client_billing_results ("customerProfileId");
+CREATE INDEX IF NOT EXISTS idx_client_billing_results_status ON client_billing_results ("status");
+
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_qbo_id ON customer_profiles ("qboCustomerId");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_is_active ON customer_profiles ("isActive");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_name ON customer_profiles ("name");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_queue_names ON customer_profiles USING GIN ("genesysQueueNames");
 
 -- Triggers to maintain updatedAt
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
@@ -92,10 +156,10 @@ $$ LANGUAGE plpgsql;
 
 DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'set_clients_updated_at'
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_customer_profiles_updated_at'
   ) THEN
-    CREATE TRIGGER set_clients_updated_at
-    BEFORE UPDATE ON clients
+    CREATE TRIGGER set_customer_profiles_updated_at
+    BEFORE UPDATE ON customer_profiles
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
   END IF;
 END $$;
@@ -109,3 +173,23 @@ DO $$ BEGIN
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
   END IF;
 END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_client_billing_results_updated_at'
+  ) THEN
+    CREATE TRIGGER set_client_billing_results_updated_at
+    BEFORE UPDATE ON client_billing_results
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  END IF;
+END $$;
+
+-- Insert sample data for development (optional)
+-- Uncomment the following lines if you want sample data for testing
+
+/*
+INSERT INTO customer_profiles ("name", "genesysQueueNames", "email", "isActive", "ratePerMinute") VALUES
+  ('Advanced Eyecare', ARRAY['Advanced Eyecare', 'AE_Support'], 'billing@advancedeyecare.com', true, 1.50),
+  ('Sample Client 2', ARRAY['Sample_Queue_2'], 'client2@example.com', true, 2.00)
+ON CONFLICT ("name") DO NOTHING;
+*/

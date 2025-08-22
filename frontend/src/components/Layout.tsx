@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, Outlet } from "react-router-dom";
 import {
   Menu,
   X,
@@ -11,23 +11,23 @@ import {
   Bell,
   Database,
   Phone,
+  Building2,
 } from "lucide-react";
 import { useAuthStore } from "../stores/authStore";
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
+interface LayoutProps {}
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
-  { name: "Billing Jobs", href: "/billing", icon: CreditCard },
-  { name: "Clients", href: "/clients", icon: Users },
+  { name: "Billing Jobs", href: "/billing-jobs", icon: CreditCard },
+  { name: "Customer Profiles", href: "/customer-profiles", icon: Users },
+  { name: "Company Info", href: "/company-info", icon: Building2 },
   { name: "QBO Setup", href: "/qbo-setup", icon: Database },
   { name: "Genesys Cloud", href: "/genesys", icon: Phone },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({}: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuthStore();
@@ -144,7 +144,7 @@ export function Layout({ children }: LayoutProps) {
         {/* Page content */}
         <main className="py-6">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            {children}
+            <Outlet />
           </div>
         </main>
       </div>

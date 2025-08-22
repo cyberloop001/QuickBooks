@@ -6,7 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from "typeorm";
-import { Client } from "./Client";
+import { CustomerProfile } from "./CustomerProfile";
 
 @Entity("phone_usage")
 export class PhoneUsage {
@@ -17,7 +17,13 @@ export class PhoneUsage {
   callId!: string;
 
   @Column()
-  clientId!: string;
+  customerProfileId!: string;
+
+  @Column({ nullable: true })
+  genesysQueueName!: string;
+
+  @Column({ nullable: true })
+  genesysUserId!: string;
 
   @Column({ type: "timestamp with time zone" })
   startedAt!: Date;
@@ -56,9 +62,9 @@ export class PhoneUsage {
   createdAt!: Date;
 
   // Relationships
-  @ManyToOne(() => Client, (client) => client.phoneUsages)
-  @JoinColumn({ name: "clientId" })
-  client!: Client;
+  @ManyToOne(() => CustomerProfile, (profile) => profile.phoneUsages)
+  @JoinColumn({ name: "customerProfileId" })
+  customerProfile!: CustomerProfile;
 
   // Helper methods
   getDurationInMinutes(): number {
@@ -75,5 +81,17 @@ export class PhoneUsage {
 
   isInBillingPeriod(startDate: Date, endDate: Date): boolean {
     return this.startedPst >= startDate && this.startedPst <= endDate;
+  }
+
+  // Get the customer name from the profile
+  getCustomerName(): string {
+    return this.customerProfile
+      ? this.customerProfile.getDisplayName()
+      : "Unknown Customer";
+  }
+
+  // Get the queue name (either from this record or from the profile)
+  getQueueName(): string {
+    return this.genesysQueueName || "Unknown Queue";
   }
 }

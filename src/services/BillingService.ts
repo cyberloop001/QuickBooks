@@ -1,7 +1,7 @@
-import { getRepository } from "typeorm";
+import { getRepository, Repository } from "typeorm";
 import { v4 as uuidv4 } from "uuid";
 import moment from "moment-timezone";
-import { Client } from "../entities/Client";
+import { CustomerProfile } from "../entities/CustomerProfile";
 import { PhoneUsage } from "../entities/PhoneUsage";
 import {
   BillingJob,
@@ -41,6 +41,18 @@ export class BillingService {
   constructor() {
     this.qboService = new QBOService();
     this.genesysService = new GenesysService();
+  }
+
+  private get customerProfileRepository(): Repository<CustomerProfile> {
+    return getRepository(CustomerProfile);
+  }
+
+  private get phoneUsageRepository(): Repository<PhoneUsage> {
+    return getRepository(PhoneUsage);
+  }
+
+  private get billingJobRepository(): Repository<BillingJob> {
+    return getRepository(BillingJob);
   }
 
   /**
@@ -166,7 +178,7 @@ export class BillingService {
           // Convert Genesys data to billing format
           usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
-            client_id: clientId || record.userId || "unknown",
+            customerProfileId: clientId || record.userId || "unknown",
             started_at: record.startTime,
             ended_at: record.endTime,
             billable_seconds: record.duration,
@@ -194,24 +206,50 @@ export class BillingService {
         } catch (genesysError) {
           logger.warn(
             "Failed to fetch from Genesys Cloud Analytics API, falling back to phone system",
-            {
-              error: genesysError,
-            }
+            { error: genesysError }
           );
         }
       }
 
-      // If no Genesys data, log warning
+      // If no Genesys data or fallback needed, try phone system
       if (usageData.length === 0) {
-        logger.warn("No call data available from Genesys Cloud Analytics API", {
-          startDate,
-          endDate,
-          clientId,
-        });
-      }
+        try {
+          logger.info("Fetching phone usage data from phone system...");
+          const phoneUsageRepo = this.phoneUsageRepository;
+          const usageQuery = phoneUsageRepo
+            .createQueryBuilder("usage")
+            .where("usage.startedAt >= :startDate", { startDate })
+            .andWhere("usage.startedAt <= :endDate", { endDate });
 
-      // Store usage data in database
-      await this.storePhoneUsageData(usageData);
+          if (clientId) {
+            usageQuery.andWhere("usage.clientId = :clientId", { clientId });
+          }
+
+          const phoneUsageData = await usageQuery.getMany();
+
+          usageData = phoneUsageData.map((usage) => ({
+            call_id: usage.callId,
+            customerProfileId: usage.customerProfileId,
+            started_at: usage.startedAt,
+            ended_at: usage.endedAt,
+            billable_seconds: usage.billableSeconds,
+            started_pst: usage.startedPst,
+            ended_pst: usage.endedPst,
+            source: "phone_system",
+          }));
+
+          logger.info("Successfully fetched phone usage data", {
+            count: usageData.length,
+            startDate,
+            endDate,
+          });
+        } catch (phoneError) {
+          logger.error("Failed to fetch phone usage data", {
+            error: phoneError,
+          });
+          throw new Error("Failed to fetch usage data from all sources");
+        }
+      }
 
       return usageData;
     } catch (error) {
@@ -219,13 +257,8 @@ export class BillingService {
         error,
         startDate,
         endDate,
-        clientId,
       });
-      throw new Error(
-        `Failed to fetch phone usage data: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      throw error;
     }
   }
 
@@ -244,18 +277,16 @@ export class BillingService {
       if (!existingUsage) {
         const phoneUsage = new PhoneUsage();
         phoneUsage.callId = usage.call_id;
-        phoneUsage.clientId = usage.client_id;
+        phoneUsage.customerProfileId = usage.customerProfileId;
         phoneUsage.startedAt = new Date(usage.started_at);
         phoneUsage.endedAt = new Date(usage.ended_at);
         phoneUsage.billableSeconds = usage.billable_seconds;
         phoneUsage.startedPst = new Date(usage.started_pst);
         phoneUsage.endedPst = new Date(usage.ended_pst);
-        phoneUsage.billableMinutes =
-          Math.round((usage.billable_seconds / 60) * 100) / 100;
+        phoneUsage.billableMinutes = usage.billable_seconds / 60;
         phoneUsage.amount =
-          Math.round(
-            phoneUsage.billableMinutes * config.billing.ratePerMinute * 100
-          ) / 100;
+          (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+        phoneUsage.isBilled = false;
 
         await phoneUsageRepo.save(phoneUsage);
       }
@@ -270,20 +301,22 @@ export class BillingService {
     startDate: Date,
     endDate: Date
   ): Promise<Map<string, any>> {
-    const clientRepo = getRepository(Client);
+    const clientRepo = getRepository(CustomerProfile);
     const aggregatedUsage = new Map<string, any>();
 
     for (const usage of usageData) {
-      const clientId = usage.client_id;
+      const clientId = usage.customerProfileId;
 
       if (!aggregatedUsage.has(clientId)) {
         // Get client details
         const client = await clientRepo.findOne({
-          where: { genesysClientId: clientId },
+          where: { id: clientId },
         });
 
         if (!client) {
-          logger.warn(`Client not found for phone system ID: ${clientId}`);
+          logger.warn(
+            `Customer profile not found for phone system ID: ${clientId}`
+          );
           continue;
         }
 
@@ -362,119 +395,154 @@ export class BillingService {
     billingJob: BillingJob,
     isDryRun: boolean
   ): Promise<ClientBillingResult> {
-    const { client, totalCalls, totalMinutes, totalAmount } = usage;
+    try {
+      const clientRepo = this.customerProfileRepository;
+      const client = await clientRepo.findOne({
+        where: { id: usage.customerProfileId },
+      });
 
-    // Check if invoice already exists for this client and period
-    if (!isDryRun) {
-      const existingInvoice = await this.qboService.findExistingInvoice(
-        client.qboCustomerId,
-        billingJob.startDate,
-        billingJob.endDate,
-        billingJob.jobId
-      );
-
-      if (existingInvoice) {
-        logger.info(`Invoice already exists for client ${client.id}`, {
-          clientId: client.id,
-          invoiceId: existingInvoice.Id,
-          jobId: billingJob.jobId,
-        });
-
+      if (!client) {
         return {
-          clientId: client.id,
-          clientName: client.name,
-          totalCalls,
-          totalMinutes,
-          totalAmount,
-          invoiceCreated: true,
-          invoiceId: existingInvoice.Id,
+          clientId: usage.customerProfileId,
+          clientName: "Unknown Customer",
+          totalCalls: 0,
+          totalMinutes: 0,
+          totalAmount: 0,
+          invoiceCreated: false,
+          error: "Customer profile not found",
         };
       }
+
+      // Calculate billing amounts
+      const totalMinutes = usage.billable_seconds / 60;
+      const totalAmount = totalMinutes * client.ratePerMinute;
+
+      let invoiceId: string | undefined;
+      let invoiceCreated = false;
+
+      if (!isDryRun) {
+        try {
+          // Create invoice in QBO
+          const invoicePayload = await this.createInvoicePayload(
+            client,
+            totalMinutes,
+            totalAmount,
+            billingJob
+          );
+
+          const invoice = await this.qboService.createInvoice(invoicePayload);
+          invoiceId = invoice.Id;
+          invoiceCreated = true;
+
+          logger.info("Invoice created successfully", {
+            clientId: client.id,
+            clientName: client.qboDisplayName,
+            invoiceId,
+            totalAmount,
+          });
+        } catch (invoiceError) {
+          logger.error("Failed to create invoice", {
+            error: invoiceError,
+            clientId: client.id,
+            clientName: client.qboDisplayName,
+          });
+
+          return {
+            clientId: client.id,
+            clientName: client.qboDisplayName,
+            totalCalls: 1,
+            totalMinutes,
+            totalAmount,
+            invoiceCreated: false,
+            error:
+              invoiceError instanceof Error
+                ? invoiceError.message
+                : "Unknown error",
+          };
+        }
+      }
+
+      return {
+        clientId: client.id,
+        clientName: client.qboDisplayName,
+        totalCalls: 1,
+        totalMinutes,
+        totalAmount,
+        invoiceCreated: !isDryRun,
+        invoiceId,
+      };
+    } catch (error) {
+      logger.error("Failed to process client billing", { error, usage });
+      throw error;
     }
-
-    // Create invoice payload
-    const invoicePayload = this.createInvoicePayload(
-      client,
-      totalMinutes,
-      totalAmount,
-      billingJob
-    );
-
-    let invoiceId: string | undefined;
-
-    if (!isDryRun) {
-      // Create invoice in QBO
-      const invoice = await this.qboService.createInvoice(invoicePayload);
-      invoiceId = invoice.Id;
-
-      // Mark phone usage as billed
-      await this.markUsageAsBilled(usage.calls, billingJob.id, invoiceId);
-    }
-
-    return {
-      clientId: client.id,
-      clientName: client.name,
-      totalCalls,
-      totalMinutes,
-      totalAmount,
-      invoiceCreated: !isDryRun,
-      invoiceId,
-    };
   }
 
   /**
    * Create invoice payload for QBO
    */
-  private createInvoicePayload(
-    client: Client,
+  private async createInvoicePayload(
+    client: CustomerProfile,
     totalMinutes: number,
     totalAmount: number,
     billingJob: BillingJob
-  ): any {
-    const billingPeriod = `${
-      billingJob.startDate.toISOString().split("T")[0]
-    } to ${billingJob.endDate.toISOString().split("T")[0]}`;
+  ): Promise<any> {
+    try {
+      // Get company info for invoice header
+      let companyInfo: any = null;
+      try {
+        companyInfo = await this.qboService.getCompanyInfo();
+      } catch (error) {
+        logger.warn("Failed to get company info, using default values", {
+          error,
+        });
+      }
 
-    return {
-      Line: [
-        {
-          Amount: totalAmount,
-          DetailType: "SalesItemLineDetail",
-          SalesItemLineDetail: {
-            ItemRef: {
-              value: config.billing.itemId,
+      const invoicePayload = {
+        Line: [
+          {
+            Amount: totalAmount,
+            DetailType: "SalesItemLineDetail",
+            SalesItemLineDetail: {
+              ItemRef: {
+                value: config.billing.itemId || "PHONE_USAGE",
+              },
+              Qty: totalMinutes,
+              UnitPrice: client.ratePerMinute,
             },
-            Qty: totalMinutes,
-            UnitPrice: config.billing.ratePerMinute,
           },
-          Description: `Phone usage for ${moment(billingJob.startDate).format(
-            "MMMM YYYY"
-          )} (PST)`,
-          Memo: `Billing period: ${billingPeriod} PST`,
+        ],
+        CustomerRef: {
+          value: client.qboCustomerId,
         },
-      ],
-      CustomerRef: {
-        value: client.qboCustomerId,
-      },
-      DocNumber: `INV-${moment(billingJob.startDate).format("YYYY-MM")}-${
-        client.genesysClientId
-      }`,
-      TxnDate: moment(billingJob.endDate).add(1, "day").format("YYYY-MM-DD"),
-      BillEmail: client.email ? { Address: client.email } : undefined,
-      ShipFromAddr: {
-        Line1: client.address || "Your Company Name",
-        City: client.city || "Your City",
-        CountrySubDivisionCode: client.state || "CA",
-        PostalCode: client.zipCode || "12345",
-        Country: client.country || "US",
-      },
-      CustomerMemo: {
-        value: `Phone usage charges for ${moment(billingJob.startDate).format(
-          "MMMM YYYY"
-        )}`,
-      },
-      PrivateNote: `Generated by automated billing system - Job ID: ${billingJob.jobId}`,
-    };
+        DocNumber: `INV-${billingJob.jobId}-${client.id}`,
+        PrivateNote: `Phone usage billing for ${client.qboDisplayName}. Job ID: ${billingJob.jobId}`,
+        ShipFromAddr: companyInfo?.CompanyAddr || {
+          Line1: "Default Company Address",
+          City: "Default City",
+          CountrySubDivisionCode: "CA",
+          Country: "US",
+        },
+        BillEmail: {
+          Address: client.qboPrimaryEmailAddr || companyInfo?.Email?.Address,
+        },
+        ShipAddr: {
+          Line1: client.qboLine1 || "No address provided",
+          City: client.qboCity || "No city provided",
+          CountrySubDivisionCode: client.qboCountrySubDivisionCode || "CA",
+          Country: client.qboCountry || "US",
+        },
+      };
+
+      return invoicePayload;
+    } catch (error) {
+      logger.error("Failed to create invoice payload", {
+        error,
+        client,
+        totalMinutes,
+        totalAmount,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -485,18 +553,32 @@ export class BillingService {
     billingJobId: string,
     invoiceId: string
   ): Promise<void> {
-    const phoneUsageRepo = getRepository(PhoneUsage);
+    try {
+      const phoneUsageRepo = this.phoneUsageRepository;
 
-    for (const call of calls) {
-      await phoneUsageRepo.update(
-        { callId: call.call_id },
-        {
+      // Update usage records to mark them as billed
+      await phoneUsageRepo
+        .createQueryBuilder()
+        .update(PhoneUsage)
+        .set({
           isBilled: true,
-          billingJobId,
+          billingJobId: billingJobId,
           qboInvoiceId: invoiceId,
           billedAt: new Date(),
-        }
-      );
+        })
+        .where("callId IN (:...callIds)", {
+          callIds: calls.map((call) => call.call_id),
+        })
+        .execute();
+
+      logger.info("Marked usage records as billed", {
+        count: calls.length,
+        billingJobId,
+        invoiceId,
+      });
+    } catch (error) {
+      logger.error("Failed to mark usage records as billed", { error });
+      throw error;
     }
   }
 
@@ -563,11 +645,27 @@ export class BillingService {
     const invoicesFailed = results.filter((r) => r.error).length;
 
     await billingJobRepo.update(jobId, {
-      totalClients: results.length,
+      totalCustomers: results.length,
       totalInvoices: invoicesCreated,
       totalAmount,
       successfulInvoices: invoicesCreated,
       failedInvoices: invoicesFailed,
     });
+  }
+
+  /**
+   * Get billing job by ID
+   */
+  async getBillingJob(jobId: string): Promise<BillingJob | null> {
+    try {
+      const billingJobRepo = this.billingJobRepository;
+      return await billingJobRepo.findOne({
+        where: { jobId },
+        relations: ["clientBillingResults"],
+      });
+    } catch (error) {
+      logger.error("Failed to get billing job", { error, jobId });
+      throw error;
+    }
   }
 }

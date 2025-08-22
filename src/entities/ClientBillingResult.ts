@@ -8,7 +8,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { BillingJob } from "./BillingJob";
-import { Client } from "./Client";
+import { CustomerProfile } from "./CustomerProfile";
 
 export enum ClientBillingStatus {
   PENDING = "PENDING",
@@ -27,7 +27,7 @@ export class ClientBillingResult {
   billingJobId!: string;
 
   @Column()
-  clientId!: string;
+  customerProfileId!: string;
 
   @Column({
     type: "enum",
@@ -71,7 +71,7 @@ export class ClientBillingResult {
   @JoinColumn({ name: "billingJobId" })
   billingJob!: BillingJob;
 
-  @ManyToOne(() => Client)
-  @JoinColumn({ name: "clientId" })
-  client!: Client;
+  @ManyToOne(() => CustomerProfile)
+  @JoinColumn({ name: "customerProfileId" })
+  customerProfile!: CustomerProfile;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle, AlertCircle, Loader } from "lucide-react";
 import toast from "react-hot-toast";
@@ -9,10 +9,14 @@ export function QBOCallback() {
   const [status, setStatus] = useState<"loading" | "success" | "error">(
     "loading"
   );
+  const hasRan = useRef(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    handleCallback();
+    if (!hasRan.current) {
+      handleCallback();
+      hasRan.current = true;
+    }
   }, []);
 
   const handleCallback = async () => {
