@@ -10,6 +10,7 @@ import {
   Phone,
   CreditCard,
   Users,
+  X,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
@@ -207,7 +208,8 @@ export function CustomerProfiles() {
         fetchCustomerProfiles();
       } else {
         const error = await response.json();
-        toast.error(error.message || "Failed to create customer profile");
+        console.log("error", error);
+        toast.error(error.errors[0].msg || "Failed to create customer profile");
       }
     } catch (error) {
       console.error("Error creating customer profile:", error);
@@ -788,7 +790,7 @@ export function CustomerProfiles() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${profile.ratePerMinute.toFixed(2)}
+                      ${profile.ratePerMinute}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(profile)}
@@ -982,7 +984,7 @@ function CustomerProfileModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto w-full z-50">
       <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-gray-900">
@@ -990,9 +992,9 @@ function CustomerProfileModal({
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-400 bg-gray-100 rounded-md p-1 hover:text-gray-600 hover:bg-gray-200 transition-colors duration-200"
           >
-            ×
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -1012,7 +1014,7 @@ function CustomerProfileModal({
                     qboDisplayName: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Required for QBO integration"
               />
             </div>
@@ -1030,7 +1032,7 @@ function CustomerProfileModal({
                     qboCustomerId: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1048,7 +1050,7 @@ function CustomerProfileModal({
                     qboCompanyName: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1066,7 +1068,7 @@ function CustomerProfileModal({
                     qboGivenName: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional - First name"
               />
             </div>
@@ -1084,7 +1086,7 @@ function CustomerProfileModal({
                     qboFamilyName: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional - Last name"
               />
             </div>
@@ -1102,7 +1104,7 @@ function CustomerProfileModal({
                     qboMiddleName: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1120,7 +1122,7 @@ function CustomerProfileModal({
                     qboTitle: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional - Mr, Mrs, Dr, etc."
               />
             </div>
@@ -1138,7 +1140,7 @@ function CustomerProfileModal({
                     qboSuffix: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional - Jr, Sr, III, etc."
               />
             </div>
@@ -1156,7 +1158,7 @@ function CustomerProfileModal({
                     qboPrimaryEmailAddr: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1174,7 +1176,7 @@ function CustomerProfileModal({
                     qboPrimaryPhone: e.target.value,
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1195,7 +1197,7 @@ function CustomerProfileModal({
                     ratePerMinute: parseFloat(e.target.value),
                   }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
               />
             </div>
 
@@ -1209,7 +1211,7 @@ function CustomerProfileModal({
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, taxCode: e.target.value }))
                 }
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 placeholder="Optional"
               />
             </div>
@@ -1234,7 +1236,7 @@ function CustomerProfileModal({
                       qboLine1: e.target.value,
                     }))
                   }
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                   placeholder="Street address"
                 />
               </div>
@@ -1252,7 +1254,7 @@ function CustomerProfileModal({
                       qboCity: e.target.value,
                     }))
                   }
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                   placeholder="City"
                 />
               </div>
@@ -1270,7 +1272,7 @@ function CustomerProfileModal({
                       qboCountrySubDivisionCode: e.target.value,
                     }))
                   }
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                   placeholder="State or province code"
                 />
               </div>
@@ -1288,7 +1290,7 @@ function CustomerProfileModal({
                       qboPostalCode: e.target.value,
                     }))
                   }
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                   placeholder="Postal code"
                 />
               </div>
@@ -1306,7 +1308,7 @@ function CustomerProfileModal({
                       qboCountry: e.target.value,
                     }))
                   }
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                   placeholder="Country code (e.g., US, CA)"
                 />
               </div>
@@ -1323,7 +1325,7 @@ function CustomerProfileModal({
                 value={newQueue}
                 onChange={(e) => setNewQueue(e.target.value)}
                 placeholder="Enter queue name"
-                className="flex-1 border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="flex-1 pl-2 border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 onKeyPress={(e) =>
                   e.key === "Enter" && (e.preventDefault(), addQueue())
                 }
@@ -1365,7 +1367,7 @@ function CustomerProfileModal({
                 setFormData((prev) => ({ ...prev, notes: e.target.value }))
               }
               rows={3}
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+              className="mt-1 pl-2 block w-full border-gray-300 rounded-md shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
               placeholder="Optional notes about this customer"
             />
           </div>
@@ -1450,7 +1452,7 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
           >
-            ×
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -1475,7 +1477,7 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                   Total Minutes
                 </div>
                 <div className="text-2xl font-bold text-gray-900">
-                  {stats.totalMinutes.toFixed(2)}
+                  {stats.totalMinutes}
                 </div>
               </div>
               <div className="bg-gray-50 p-4 rounded-lg">
@@ -1483,7 +1485,7 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                   Total Amount
                 </div>
                 <div className="text-2xl font-bold text-gray-900">
-                  ${stats.totalAmount.toFixed(2)}
+                  ${stats.totalAmount}
                 </div>
               </div>
               <div className="bg-gray-50 p-4 rounded-lg">
@@ -1491,7 +1493,7 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                   Avg Call Duration
                 </div>
                 <div className="text-2xl font-bold text-gray-900">
-                  {stats.averageCallDuration.toFixed(2)} min
+                  {stats.averageCallDuration} min
                 </div>
               </div>
             </div>
@@ -1507,7 +1509,7 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
               </div>
             )}
 
-            {Object.keys(stats.queueUsage).length > 0 && (
+            {stats.queueUsage && (
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-3">
                   Queue Usage Breakdown
@@ -1523,8 +1525,8 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                           {queueName}
                         </span>
                         <div className="text-sm text-gray-600">
-                          {usage.calls} calls • {usage.minutes.toFixed(2)} min •
-                          ${usage.amount.toFixed(2)}
+                          {usage.calls} calls • {usage.minutes} min • $
+                          {usage.amount}
                         </div>
                       </div>
                     )

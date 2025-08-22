@@ -162,7 +162,96 @@ export class CustomerProfileService {
       if (filters.queueName) {
         findOptions.where = {
           ...findOptions.where,
-          genesysQueueNames: In([filters.queueName]),
+        };
+        // Use query builder for array filtering
+        const queryBuilder = this.customerProfileRepository
+          .createQueryBuilder("profile")
+          .leftJoinAndSelect("profile.phoneUsages", "phoneUsages")
+          .where(":queueName = ANY(profile.genesysQueueNames)", {
+            queueName: filters.queueName,
+          });
+
+        if (searchConditions.length > 0) {
+          // Apply search conditions
+          searchConditions.forEach((condition, index) => {
+            const key = Object.keys(condition)[0];
+            const value = condition[key];
+            if (key === "qboDisplayName") {
+              queryBuilder.andWhere(
+                `profile.qboDisplayName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboCustomerId") {
+              queryBuilder.andWhere(
+                `profile.qboCustomerId LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboPrimaryEmailAddr") {
+              queryBuilder.andWhere(
+                `profile.qboPrimaryEmailAddr LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboCompanyName") {
+              queryBuilder.andWhere(
+                `profile.qboCompanyName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboGivenName") {
+              queryBuilder.andWhere(
+                `profile.qboGivenName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboFamilyName") {
+              queryBuilder.andWhere(
+                `profile.qboFamilyName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            }
+          });
+        }
+
+        if (filters.isActive !== undefined) {
+          queryBuilder.andWhere("profile.isActive = :isActive", {
+            isActive: filters.isActive,
+          });
+        }
+
+        queryBuilder
+          .skip(skip)
+          .take(limit)
+          .orderBy("profile.createdAt", "DESC");
+
+        const [customerProfiles, total] = await queryBuilder.getManyAndCount();
+        const pages = Math.ceil(total / limit);
+
+        logger.info("Retrieved customer profiles with queue filter", {
+          count: customerProfiles.length,
+          total,
+          page,
+          limit,
+          filters,
+        });
+
+        return {
+          customerProfiles,
+          pagination: {
+            page,
+            limit,
+            total,
+            pages,
+          },
         };
       }
 
@@ -260,10 +349,11 @@ export class CustomerProfileService {
     queueName: string
   ): Promise<CustomerProfile | null> {
     try {
-      const profile = await this.customerProfileRepository.findOne({
-        where: { genesysQueueNames: In([queueName]) },
-        relations: ["phoneUsages"],
-      });
+      const profile = await this.customerProfileRepository
+        .createQueryBuilder("profile")
+        .where(":queueName = ANY(profile.genesysQueueNames)", { queueName })
+        .leftJoinAndSelect("profile.phoneUsages", "phoneUsages")
+        .getOne();
 
       if (profile) {
         logger.info("Retrieved customer profile by queue name", {
@@ -310,9 +400,10 @@ export class CustomerProfileService {
         profileData.genesysQueueNames.length > 0
       ) {
         for (const queueName of profileData.genesysQueueNames) {
-          const existingProfile = await this.customerProfileRepository.findOne({
-            where: { genesysQueueNames: In([queueName]) },
-          });
+          const existingProfile = await this.customerProfileRepository
+            .createQueryBuilder("profile")
+            .where(":queueName = ANY(profile.genesysQueueNames)", { queueName })
+            .getOne();
 
           if (existingProfile) {
             throw new Error(
@@ -380,10 +471,13 @@ export class CustomerProfileService {
       if (updateData.genesysQueueNames) {
         for (const queueName of updateData.genesysQueueNames) {
           if (!profile.genesysQueueNames.includes(queueName)) {
-            const existingProfile =
-              await this.customerProfileRepository.findOne({
-                where: { genesysQueueNames: In([queueName]) },
-              });
+            const existingProfile = await this.customerProfileRepository
+              .createQueryBuilder("profile")
+              .where(":queueName = ANY(profile.genesysQueueNames)", {
+                queueName,
+              })
+              .andWhere("profile.id != :profileId", { profileId: profile.id })
+              .getOne();
 
             if (existingProfile) {
               throw new Error(
