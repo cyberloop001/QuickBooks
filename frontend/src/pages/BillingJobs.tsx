@@ -1,22 +1,38 @@
 import { useState, useEffect } from "react";
-import { Play, RefreshCw, X, Eye, Search } from "lucide-react";
+import {
+  Play,
+  RefreshCw,
+  X,
+  Eye,
+  Search,
+  Clock,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  Ban,
+} from "lucide-react";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
+import { ReactElement } from "react";
 
 interface BillingJob {
   id: string;
   jobId: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  type: "monthly" | "manual" | "dry_run";
+  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "CANCELLED";
+  type: "MONTHLY" | "MANUAL" | "DRY_RUN";
   startDate: string;
   endDate: string;
-  totalAmount: number;
+  totalCustomers: number;
   totalInvoices: number;
+  totalAmount: number;
   successfulInvoices: number;
   failedInvoices: number;
-  createdAt: string;
+  error?: string;
+  metadata?: any;
+  startedAt?: string;
   completedAt?: string;
-  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface RunJobRequest {
@@ -113,7 +129,7 @@ export function BillingJobs() {
 
   const retryJob = async (jobId: string) => {
     try {
-      const response = await fetch(`/api/v1/billing-jobs/${jobId}/retry`, {
+      const response = await fetch(`/api/v1/billing/retry/${jobId}`, {
         method: "POST",
       });
 
@@ -145,8 +161,8 @@ export function BillingJobs() {
     }
 
     try {
-      const response = await fetch(`/api/v1/billing-jobs/${jobId}/cancel`, {
-        method: "POST",
+      const response = await fetch(`/api/v1/billing/jobs/${jobId}`, {
+        method: "DELETE",
       });
 
       if (!response.ok) {
@@ -186,17 +202,31 @@ export function BillingJobs() {
   });
 
   const statusColors = {
-    pending: "bg-yellow-100 text-yellow-800",
-    in_progress: "bg-blue-100 text-blue-800",
-    completed: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-800",
+    PENDING: "bg-yellow-100 text-yellow-800",
+    IN_PROGRESS: "bg-blue-100 text-blue-800",
+    COMPLETED: "bg-green-100 text-green-800",
+    FAILED: "bg-red-100 text-red-800",
+    CANCELLED: "bg-gray-100 text-gray-800",
   };
 
-  const statusIcons = {
-    pending: "⏳",
-    in_progress: "🔄",
-    completed: "✅",
-    failed: "❌",
+  const statusIcons: Record<string, ReactElement> = {
+    PENDING: <Clock className="h-3 w-3" />,
+    IN_PROGRESS: <Loader2 className="h-3 w-3 animate-spin" />,
+    COMPLETED: <CheckCircle className="h-3 w-3" />,
+    FAILED: <AlertCircle className="h-3 w-3" />,
+    CANCELLED: <Ban className="h-3 w-3" />,
+  };
+
+  const statusLabels = {
+    PENDING: "Pending",
+    IN_PROGRESS: "In Progress",
+    COMPLETED: "Completed",
+    FAILED: "Failed",
+    CANCELLED: "Cancelled",
+  };
+
+  const getStatusDisplay = (status: string) => {
+    return statusLabels[status as keyof typeof statusLabels] || status;
   };
 
   if (isLoading) {
@@ -249,7 +279,7 @@ export function BillingJobs() {
                 placeholder="Search jobs..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                className="pl-10 h-10 block w-full border-gray-300 rounded-md shadow-sm focus:outline-gray-300 focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
           </div>
@@ -260,10 +290,11 @@ export function BillingJobs() {
               className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
             >
               <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="in_progress">In Progress</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
+              <option value="PENDING">Pending</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="FAILED">Failed</option>
+              <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
         </div>
@@ -309,10 +340,16 @@ export function BillingJobs() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        statusColors[job.status]
+                        statusColors[job.status as keyof typeof statusColors] ||
+                        "bg-gray-100 text-gray-800"
                       }`}
                     >
-                      {statusIcons[job.status]} {job.status.replace("_", " ")}
+                      <span className="mr-1.5 flex-shrink-0">
+                        {statusIcons[
+                          job.status as keyof typeof statusIcons
+                        ] || <Clock className="h-3 w-3" />}
+                      </span>
+                      {getStatusDisplay(job.status)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -363,7 +400,7 @@ export function BillingJobs() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
-                      {job.status === "failed" && (
+                      {job.status === "FAILED" && (
                         <button
                           onClick={() => retryJob(job.id)}
                           className="text-yellow-600 hover:text-yellow-900"
@@ -372,8 +409,8 @@ export function BillingJobs() {
                           <RefreshCw className="h-4 w-4" />
                         </button>
                       )}
-                      {(job.status === "pending" ||
-                        job.status === "in_progress") && (
+                      {(job.status === "PENDING" ||
+                        job.status === "IN_PROGRESS") && (
                         <button
                           onClick={() => cancelJob(job.id)}
                           className="text-red-600 hover:text-red-900"
@@ -500,11 +537,17 @@ export function BillingJobs() {
                   <span className="font-medium">Status:</span>
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ml-2 ${
-                      statusColors[selectedJob.status]
+                      statusColors[
+                        selectedJob.status as keyof typeof statusColors
+                      ] || "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    {statusIcons[selectedJob.status]}{" "}
-                    {selectedJob.status.replace("_", " ")}
+                    <span className="mr-1.5 flex-shrink-0">
+                      {statusIcons[
+                        selectedJob.status as keyof typeof statusIcons
+                      ] || <Clock className="h-3 w-3" />}
+                    </span>
+                    {getStatusDisplay(selectedJob.status)}
                   </span>
                 </div>
                 <div>
@@ -565,13 +608,13 @@ export function BillingJobs() {
                     </div>
                   </div>
                 </div>
-                {selectedJob.errorMessage && (
+                {selectedJob.error && (
                   <div className="border-t pt-3">
                     <span className="font-medium text-red-600">
                       Error Details:
                     </span>
                     <div className="text-red-600 text-xs mt-1 bg-red-50 p-2 rounded">
-                      {selectedJob.errorMessage}
+                      {selectedJob.error}
                     </div>
                   </div>
                 )}

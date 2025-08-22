@@ -5,6 +5,7 @@ import { JobScheduler } from "../jobs/scheduler";
 import { logger } from "../utils/logger";
 import moment from "moment-timezone";
 import { config } from "../config";
+import { BillingJobStatus, BillingJobType } from "../entities/BillingJob";
 
 const router = Router();
 const billingService = new BillingService();
@@ -15,19 +16,46 @@ const jobScheduler = new JobScheduler();
  */
 router.get("/jobs", async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 20, status, type, clientId } = req.query;
+    const { page = 1, limit = 20, status, type, customerProfileId } = req.query;
 
-    // This would typically use a repository to fetch jobs
-    // For now, return a placeholder response
+    // Parse and validate query parameters
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(
+      100,
+      Math.max(1, parseInt(limit as string) || 20)
+    );
+
+    // Validate status if provided
+    let validStatus: BillingJobStatus | undefined;
+    if (
+      status &&
+      Object.values(BillingJobStatus).includes(status as BillingJobStatus)
+    ) {
+      validStatus = status as BillingJobStatus;
+    }
+
+    // Validate type if provided
+    let validType: BillingJobType | undefined;
+    if (
+      type &&
+      Object.values(BillingJobType).includes(type as BillingJobType)
+    ) {
+      validType = type as BillingJobType;
+    }
+
+    // Fetch billing jobs from service
+    const result = await billingService.getBillingJobs({
+      page: pageNum,
+      limit: limitNum,
+      status: validStatus,
+      type: validType,
+      customerProfileId: customerProfileId as string,
+    });
+
     res.json({
       success: true,
-      data: [],
-      pagination: {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        total: 0,
-        pages: 0,
-      },
+      data: result.jobs,
+      pagination: result.pagination,
     });
   } catch (error) {
     logger.error("Failed to get billing jobs", { error });
@@ -56,14 +84,19 @@ router.get(
 
       const { jobId } = req.params;
 
-      // This would fetch the specific job from database
+      // Fetch the specific job from service
+      const job = await billingService.getBillingJob(jobId);
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          error: "Billing job not found",
+        });
+      }
+
       res.json({
         success: true,
-        data: {
-          jobId,
-          status: "completed",
-          // Other job details would go here
-        },
+        data: job,
       });
     } catch (error) {
       logger.error("Failed to get billing job", {
@@ -84,8 +117,35 @@ router.get(
 router.post(
   "/run",
   [
-    body("startDate").isISO8601().toDate(),
-    body("endDate").isISO8601().toDate(),
+    body("billingPeriodStart")
+      .isString()
+      .notEmpty()
+      .withMessage("Start date is required")
+      .custom((value) => {
+        const date = new Date(value);
+        if (isNaN(date.getTime())) {
+          throw new Error("Start date must be a valid date");
+        }
+        return date;
+      }),
+    body("billingPeriodEnd")
+      .isString()
+      .notEmpty()
+      .withMessage("End date is required")
+      .custom((value, { req }) => {
+        const date = new Date(value);
+        if (isNaN(date.getTime())) {
+          throw new Error("End date must be a valid date");
+        }
+
+        // Check if end date is after start date
+        const startDate = new Date(req.body.billingPeriodStart);
+        if (date <= startDate) {
+          throw new Error("End date must be after start date");
+        }
+
+        return date;
+      }),
     body("clientId").optional().isString(),
     body("isDryRun").optional().isBoolean(),
   ],
@@ -99,13 +159,52 @@ router.post(
         });
       }
 
-      const { startDate, endDate, clientId, isDryRun = false } = req.body;
+      const {
+        billingPeriodStart,
+        billingPeriodEnd,
+        clientId,
+        isDryRun = false,
+      } = req.body;
 
       logger.info("Manual billing job requested", {
-        startDate,
-        endDate,
+        billingPeriodStart,
+        billingPeriodEnd,
+        startDateType: typeof billingPeriodStart,
+        endDateType: typeof billingPeriodEnd,
         clientId,
         isDryRun,
+      });
+
+      // Convert string dates to Date objects if they aren't already
+      const startDate =
+        billingPeriodStart instanceof Date
+          ? billingPeriodStart
+          : new Date(billingPeriodStart);
+      const endDate =
+        billingPeriodEnd instanceof Date
+          ? billingPeriodEnd
+          : new Date(billingPeriodEnd);
+
+      // Validate the converted dates
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid start date format",
+        });
+      }
+
+      if (isNaN(endDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid end date format",
+        });
+      }
+
+      logger.info("Converted dates", {
+        originalStartDate: billingPeriodStart,
+        originalEndDate: billingPeriodEnd,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
       });
 
       const result = await billingService.runBillingJob(
@@ -275,12 +374,13 @@ router.post(
 
       logger.info("Retry billing job requested", { jobId });
 
-      // This would fetch the job details and retry it
-      // For now, return a placeholder response
+      // Retry the job using the service
+      const result = await billingService.retryBillingJob(jobId);
+
       res.json({
         success: true,
         message: `Retry initiated for job ${jobId}`,
-        data: { jobId },
+        data: result,
       });
     } catch (error) {
       logger.error("Failed to retry billing job", {
@@ -289,7 +389,10 @@ router.post(
       });
       res.status(500).json({
         success: false,
-        error: "Failed to retry billing job",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to retry billing job",
       });
     }
   }
@@ -315,8 +418,9 @@ router.delete(
 
       logger.info("Cancel billing job requested", { jobId });
 
-      // This would cancel the job in the database
-      // For now, return a placeholder response
+      // Cancel the job using the service
+      await billingService.cancelBillingJob(jobId);
+
       res.json({
         success: true,
         message: `Job ${jobId} cancelled successfully`,
@@ -329,7 +433,10 @@ router.delete(
       });
       res.status(500).json({
         success: false,
-        error: "Failed to cancel billing job",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel billing job",
       });
     }
   }
