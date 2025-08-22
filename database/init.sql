@@ -21,12 +21,12 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Table: clients
-CREATE TABLE IF NOT EXISTS clients (
+-- Table: customer_profiles (NEW - replaces clients table)
+CREATE TABLE IF NOT EXISTS customer_profiles (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "genesysClientId" text UNIQUE NOT NULL,
-  "qboCustomerId" text UNIQUE,
   "name" text NOT NULL,
+  "qboCustomerId" text UNIQUE,
+  "genesysQueueNames" text[] NOT NULL DEFAULT '{}',
   "email" text,
   "phone" text,
   "address" text,
@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS clients (
   "ratePerMinute" numeric(10,2) NOT NULL DEFAULT 1.00,
   "taxCode" text,
   "notes" text,
+  "qboCompanyName" text,
+  "qboDisplayName" text,
+  "qboPrimaryEmailAddr" text,
+  "qboPrimaryPhone" text,
+  "qboBillAddr" text,
+  "qboShipAddr" text,
+  "qboMetadata" json,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
@@ -50,7 +57,7 @@ CREATE TABLE IF NOT EXISTS billing_jobs (
   "status" billingjobstatus NOT NULL DEFAULT 'PENDING',
   "startDate" timestamp NOT NULL,
   "endDate" timestamp NOT NULL,
-  "totalClients" integer NOT NULL DEFAULT 0,
+  "totalCustomers" integer NOT NULL DEFAULT 0,
   "totalInvoices" integer NOT NULL DEFAULT 0,
   "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
   "successfulInvoices" integer NOT NULL DEFAULT 0,
@@ -59,6 +66,7 @@ CREATE TABLE IF NOT EXISTS billing_jobs (
   "metadata" json,
   "startedAt" timestamp,
   "completedAt" timestamp,
+  "customerProfileId" uuid,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
@@ -67,7 +75,7 @@ CREATE TABLE IF NOT EXISTS billing_jobs (
 CREATE TABLE IF NOT EXISTS client_billing_results (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   "billingJobId" uuid NOT NULL,
-  "clientId" uuid NOT NULL,
+  "customerProfileId" uuid NOT NULL,
   "status" clientbillingstatus NOT NULL DEFAULT 'PENDING',
   "totalCalls" integer NOT NULL DEFAULT 0,
   "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0,
@@ -80,14 +88,16 @@ CREATE TABLE IF NOT EXISTS client_billing_results (
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT fk_client_billing_results_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE CASCADE,
-  CONSTRAINT fk_client_billing_results_client FOREIGN KEY ("clientId") REFERENCES clients("id") ON DELETE CASCADE
+  CONSTRAINT fk_client_billing_results_customer_profile FOREIGN KEY ("customerProfileId") REFERENCES customer_profiles("id") ON DELETE CASCADE
 );
 
 -- Table: phone_usage
 CREATE TABLE IF NOT EXISTS phone_usage (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   "callId" text NOT NULL,
-  "clientId" uuid NOT NULL,
+  "customerProfileId" uuid NOT NULL,
+  "genesysQueueName" text,
+  "genesysUserId" text,
   "startedAt" timestamptz NOT NULL,
   "endedAt" timestamptz NOT NULL,
   "billableSeconds" integer NOT NULL,
@@ -100,30 +110,33 @@ CREATE TABLE IF NOT EXISTS phone_usage (
   "qboInvoiceId" text,
   "billedAt" timestamptz,
   "createdAt" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT fk_phone_usage_client FOREIGN KEY ("clientId") REFERENCES clients("id") ON DELETE CASCADE,
+  CONSTRAINT fk_phone_usage_customer_profile FOREIGN KEY ("customerProfileId") REFERENCES customer_profiles("id") ON DELETE CASCADE,
   CONSTRAINT fk_phone_usage_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE SET NULL
 );
 
 -- Helpful indexes
-CREATE INDEX IF NOT EXISTS idx_phone_usage_client_started_pst ON phone_usage ("clientId", "startedPst");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_started_pst ON phone_usage ("customerProfileId", "startedPst");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_billing_job ON phone_usage ("billingJobId");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_call_id ON phone_usage ("callId");
-CREATE INDEX IF NOT EXISTS idx_phone_usage_client_id ON phone_usage ("clientId");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_id ON phone_usage ("customerProfileId");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_is_billed ON phone_usage ("isBilled");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_queue_name ON phone_usage ("genesysQueueName");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_user_id ON phone_usage ("genesysUserId");
 
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_job_id ON billing_jobs ("jobId");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_status ON billing_jobs ("status");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_type ON billing_jobs ("type");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_period ON billing_jobs ("startDate", "endDate");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_customer_profile ON billing_jobs ("customerProfileId");
 
 CREATE INDEX IF NOT EXISTS idx_client_billing_results_billing_job ON client_billing_results ("billingJobId");
-CREATE INDEX IF NOT EXISTS idx_client_billing_results_client ON client_billing_results ("clientId");
+CREATE INDEX IF NOT EXISTS idx_client_billing_results_customer_profile ON client_billing_results ("customerProfileId");
 CREATE INDEX IF NOT EXISTS idx_client_billing_results_status ON client_billing_results ("status");
 
-CREATE INDEX IF NOT EXISTS idx_clients_genesys_id ON clients ("genesysClientId");
-CREATE INDEX IF NOT EXISTS idx_clients_qbo_id ON clients ("qboCustomerId");
-CREATE INDEX IF NOT EXISTS idx_clients_is_active ON clients ("isActive");
-CREATE INDEX IF NOT EXISTS idx_clients_name ON clients ("name");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_qbo_id ON customer_profiles ("qboCustomerId");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_is_active ON customer_profiles ("isActive");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_name ON customer_profiles ("name");
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_queue_names ON customer_profiles USING GIN ("genesysQueueNames");
 
 -- Triggers to maintain updatedAt
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
@@ -135,10 +148,10 @@ $$ LANGUAGE plpgsql;
 
 DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'set_clients_updated_at'
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_customer_profiles_updated_at'
   ) THEN
-    CREATE TRIGGER set_clients_updated_at
-    BEFORE UPDATE ON clients
+    CREATE TRIGGER set_customer_profiles_updated_at
+    BEFORE UPDATE ON customer_profiles
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
   END IF;
 END $$;
@@ -167,8 +180,8 @@ END $$;
 -- Uncomment the following lines if you want sample data for testing
 
 /*
-INSERT INTO clients ("genesysClientId", "name", "email", "isActive", "ratePerMinute") VALUES
-  ('client_001', 'Sample Client 1', 'client1@example.com', true, 1.50),
-  ('client_002', 'Sample Client 2', 'client2@example.com', true, 2.00)
-ON CONFLICT ("genesysClientId") DO NOTHING;
+INSERT INTO customer_profiles ("name", "genesysQueueNames", "email", "isActive", "ratePerMinute") VALUES
+  ('Advanced Eyecare', ARRAY['Advanced Eyecare', 'AE_Support'], 'billing@advancedeyecare.com', true, 1.50),
+  ('Sample Client 2', ARRAY['Sample_Queue_2'], 'client2@example.com', true, 2.00)
+ON CONFLICT ("name") DO NOTHING;
 */

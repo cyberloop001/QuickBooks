@@ -47,6 +47,9 @@ async function migrateDatabase() {
     // Check if we need to add missing triggers
     await addMissingTriggers(connection);
 
+    // Migrate old clients data to customer_profiles if needed
+    await migrateClientsToCustomerProfiles(connection);
+
     logger.info("Database migration completed successfully");
   } catch (error) {
     logger.error("Database migration failed:", error);
@@ -377,7 +380,7 @@ async function addMissingTriggers(connection: any) {
 
   // Add triggers for all tables that have updatedAt columns
   const triggers = [
-    { name: "set_clients_updated_at", table: "clients" },
+    { name: "set_customer_profiles_updated_at", table: "customer_profiles" },
     { name: "set_billing_jobs_updated_at", table: "billing_jobs" },
     {
       name: "set_client_billing_results_updated_at",
@@ -402,6 +405,97 @@ async function addMissingTriggers(connection: any) {
     } catch (error) {
       logger.info(`Trigger ${trigger.name} already exists or creation failed`);
     }
+  }
+}
+
+async function migrateClientsToCustomerProfiles(connection: any) {
+  logger.info("Checking if clients table migration is needed...");
+
+  // Check if old clients table exists
+  const clientsTableExists = await connection.query(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_name = 'clients'
+    )
+  `);
+
+  if (clientsTableExists[0].exists) {
+    logger.info(
+      "Old clients table found, migrating data to customer_profiles..."
+    );
+
+    // Check if customer_profiles table exists
+    const customerProfilesTableExists = await connection.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'customer_profiles'
+      )
+    `);
+
+    if (customerProfilesTableExists[0].exists) {
+      // Migrate data from clients to customer_profiles
+      try {
+        await connection.query(`
+          INSERT INTO customer_profiles (
+            "name", "qboCustomerId", "genesysQueueNames", "email", "phone", 
+            "address", "city", "state", "zipCode", "country", "isActive", 
+            "ratePerMinute", "taxCode", "notes", "createdAt", "updatedAt"
+          )
+          SELECT 
+            "name", "qboCustomerId", 
+            CASE 
+              WHEN "genesysClientId" IS NOT NULL THEN ARRAY["genesysClientId"]
+              ELSE ARRAY[]::text[]
+            END as "genesysQueueNames",
+            "email", "phone", "address", "city", "state", "zipCode", "country",
+            "isActive", "ratePerMinute", "taxCode", "notes", "createdAt", "updatedAt"
+          FROM clients
+          ON CONFLICT ("name") DO NOTHING
+        `);
+
+        logger.info("Successfully migrated clients data to customer_profiles");
+
+        // Update phone_usage table to reference customer_profiles
+        try {
+          await connection.query(`
+            ALTER TABLE phone_usage 
+            ADD COLUMN IF NOT EXISTS "customerProfileId" uuid;
+          `);
+
+          // Update phone_usage records to link to customer_profiles
+          await connection.query(`
+            UPDATE phone_usage 
+            SET "customerProfileId" = cp.id
+            FROM customer_profiles cp
+            WHERE phone_usage."clientId" = cp."genesysQueueNames"[1]
+            AND phone_usage."customerProfileId" IS NULL
+          `);
+
+          logger.info(
+            "Updated phone_usage records to reference customer_profiles"
+          );
+        } catch (error) {
+          logger.info("Phone usage migration completed or not needed");
+        }
+
+        // Drop old clients table after successful migration
+        try {
+          await connection.query(`DROP TABLE clients CASCADE`);
+          logger.info("Dropped old clients table");
+        } catch (error) {
+          logger.info(
+            "Could not drop old clients table (may be referenced by other tables)"
+          );
+        }
+      } catch (error) {
+        logger.error("Failed to migrate clients data:", error);
+        throw error;
+      }
+    } else {
+      logger.info("customer_profiles table does not exist, skipping migration");
+    }
+  } else {
+    logger.info("No old clients table found, migration not needed");
   }
 }
 

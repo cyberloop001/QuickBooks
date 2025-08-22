@@ -9,6 +9,7 @@ import {
   JoinColumn,
 } from "typeorm";
 import { ClientBillingResult } from "./ClientBillingResult";
+import { CustomerProfile } from "./CustomerProfile";
 
 export enum BillingJobStatus {
   PENDING = "PENDING",
@@ -53,7 +54,7 @@ export class BillingJob {
   endDate!: Date;
 
   @Column({ type: "int", default: 0 })
-  totalClients!: number;
+  totalCustomers!: number;
 
   @Column({ type: "int", default: 0 })
   totalInvoices!: number;
@@ -88,4 +89,8 @@ export class BillingJob {
   // Relationships
   @OneToMany(() => ClientBillingResult, (result) => result.billingJob)
   clientBillingResults!: ClientBillingResult[];
+
+  @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs)
+  @JoinColumn({ name: "customerProfileId" })
+  customerProfile!: CustomerProfile;
 }

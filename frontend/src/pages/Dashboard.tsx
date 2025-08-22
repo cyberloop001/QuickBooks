@@ -248,7 +248,7 @@ export function Dashboard() {
           </div>
           <div className="pt-4">
             <div className="text-2xl font-bold">
-              ${overview.billing.totalRevenue.toFixed(2)}
+              ${overview.billing.totalRevenue}
             </div>
             <p className="text-xs text-gray-500">All time</p>
           </div>
@@ -445,7 +445,7 @@ export function Dashboard() {
                         </p>
                         <p className="text-xs text-gray-500">
                           {job.totalClients} clients • {job.totalInvoices}{" "}
-                          invoices • ${job.totalAmount.toFixed(2)}
+                          invoices • ${job.totalAmount}
                         </p>
                       </div>
                       <div className="text-right">

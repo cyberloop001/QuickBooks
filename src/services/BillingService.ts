@@ -1,7 +1,7 @@
 import { getRepository, Repository } from "typeorm";
 import { v4 as uuidv4 } from "uuid";
 import moment from "moment-timezone";
-import { Client } from "../entities/Client";
+import { CustomerProfile } from "../entities/CustomerProfile";
 import { PhoneUsage } from "../entities/PhoneUsage";
 import {
   BillingJob,
@@ -43,8 +43,8 @@ export class BillingService {
     this.genesysService = new GenesysService();
   }
 
-  private get clientRepository(): Repository<Client> {
-    return getRepository(Client);
+  private get customerProfileRepository(): Repository<CustomerProfile> {
+    return getRepository(CustomerProfile);
   }
 
   private get phoneUsageRepository(): Repository<PhoneUsage> {
@@ -178,7 +178,7 @@ export class BillingService {
           // Convert Genesys data to billing format
           usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
-            client_id: clientId || record.userId || "unknown",
+            customerProfileId: clientId || record.userId || "unknown",
             started_at: record.startTime,
             ended_at: record.endTime,
             billable_seconds: record.duration,
@@ -229,7 +229,7 @@ export class BillingService {
 
           usageData = phoneUsageData.map((usage) => ({
             call_id: usage.callId,
-            client_id: usage.clientId,
+            customerProfileId: usage.customerProfileId,
             started_at: usage.startedAt,
             ended_at: usage.endedAt,
             billable_seconds: usage.billableSeconds,
@@ -277,18 +277,16 @@ export class BillingService {
       if (!existingUsage) {
         const phoneUsage = new PhoneUsage();
         phoneUsage.callId = usage.call_id;
-        phoneUsage.clientId = usage.client_id;
+        phoneUsage.customerProfileId = usage.customerProfileId;
         phoneUsage.startedAt = new Date(usage.started_at);
         phoneUsage.endedAt = new Date(usage.ended_at);
         phoneUsage.billableSeconds = usage.billable_seconds;
         phoneUsage.startedPst = new Date(usage.started_pst);
         phoneUsage.endedPst = new Date(usage.ended_pst);
-        phoneUsage.billableMinutes =
-          Math.round((usage.billable_seconds / 60) * 100) / 100;
+        phoneUsage.billableMinutes = usage.billable_seconds / 60;
         phoneUsage.amount =
-          Math.round(
-            phoneUsage.billableMinutes * config.billing.ratePerMinute * 100
-          ) / 100;
+          (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+        phoneUsage.isBilled = false;
 
         await phoneUsageRepo.save(phoneUsage);
       }
@@ -303,20 +301,22 @@ export class BillingService {
     startDate: Date,
     endDate: Date
   ): Promise<Map<string, any>> {
-    const clientRepo = getRepository(Client);
+    const clientRepo = getRepository(CustomerProfile);
     const aggregatedUsage = new Map<string, any>();
 
     for (const usage of usageData) {
-      const clientId = usage.client_id;
+      const clientId = usage.customerProfileId;
 
       if (!aggregatedUsage.has(clientId)) {
         // Get client details
         const client = await clientRepo.findOne({
-          where: { genesysClientId: clientId },
+          where: { id: clientId },
         });
 
         if (!client) {
-          logger.warn(`Client not found for phone system ID: ${clientId}`);
+          logger.warn(
+            `Customer profile not found for phone system ID: ${clientId}`
+          );
           continue;
         }
 
@@ -396,20 +396,20 @@ export class BillingService {
     isDryRun: boolean
   ): Promise<ClientBillingResult> {
     try {
-      const clientRepo = this.clientRepository;
+      const clientRepo = this.customerProfileRepository;
       const client = await clientRepo.findOne({
-        where: { id: usage.client_id },
+        where: { id: usage.customerProfileId },
       });
 
       if (!client) {
         return {
-          clientId: usage.client_id,
-          clientName: "Unknown Client",
+          clientId: usage.customerProfileId,
+          clientName: "Unknown Customer",
           totalCalls: 0,
           totalMinutes: 0,
           totalAmount: 0,
           invoiceCreated: false,
-          error: "Client not found",
+          error: "Customer profile not found",
         };
       }
 
@@ -481,77 +481,68 @@ export class BillingService {
    * Create invoice payload for QBO
    */
   private async createInvoicePayload(
-    client: Client,
+    client: CustomerProfile,
     totalMinutes: number,
     totalAmount: number,
     billingJob: BillingJob
   ): Promise<any> {
-    const billingPeriod = `${
-      billingJob.startDate.toISOString().split("T")[0]
-    } to ${billingJob.endDate.toISOString().split("T")[0]}`;
-
-    // Get company information for invoice header
-    let companyInfo: any = null;
     try {
-      companyInfo = await this.qboService.getCompanyInfo();
-    } catch (error) {
-      logger.warn("Failed to get company info for invoice, using defaults", {
-        error,
-      });
-    }
+      // Get company info for invoice header
+      let companyInfo: any = null;
+      try {
+        companyInfo = await this.qboService.getCompanyInfo();
+      } catch (error) {
+        logger.warn("Failed to get company info, using default values", {
+          error,
+        });
+      }
 
-    // Build ShipFromAddr from company information or use defaults
-    const shipFromAddr = companyInfo?.CompanyAddr
-      ? {
-          Line1: companyInfo.CompanyAddr.Line1 || "Your Company Name",
-          City: companyInfo.CompanyAddr.City || "Your City",
-          CountrySubDivisionCode:
-            companyInfo.CompanyAddr.CountrySubDivisionCode || "CA",
-          PostalCode: companyInfo.CompanyAddr.PostalCode || "12345",
-          Country: companyInfo.CompanyAddr.Country || "US",
-        }
-      : {
-          Line1: client.address || "Your Company Name",
-          City: client.city || "Your City",
-          CountrySubDivisionCode: client.state || "CA",
-          PostalCode: client.zipCode || "12345",
-          Country: client.country || "US",
-        };
-
-    return {
-      Line: [
-        {
-          Amount: totalAmount,
-          DetailType: "SalesItemLineDetail",
-          SalesItemLineDetail: {
-            ItemRef: {
-              value: config.billing.itemId,
+      const invoicePayload = {
+        Line: [
+          {
+            Amount: totalAmount,
+            DetailType: "SalesItemLineDetail",
+            SalesItemLineDetail: {
+              ItemRef: {
+                value: config.billing.itemId || "PHONE_USAGE",
+              },
+              Qty: totalMinutes,
+              UnitPrice: client.ratePerMinute,
             },
-            Qty: totalMinutes,
-            UnitPrice: config.billing.ratePerMinute,
           },
-          Description: `Phone usage for ${moment(billingJob.startDate).format(
-            "MMMM YYYY"
-          )} (PST)`,
-          Memo: `Billing period: ${billingPeriod} PST`,
+        ],
+        CustomerRef: {
+          value: client.qboCustomerId,
         },
-      ],
-      CustomerRef: {
-        value: client.qboCustomerId,
-      },
-      DocNumber: `INV-${moment(billingJob.startDate).format("YYYY-MM")}-${
-        client.genesysClientId
-      }`,
-      TxnDate: moment(billingJob.endDate).add(1, "day").format("YYYY-MM-DD"),
-      BillEmail: client.email ? { Address: client.email } : undefined,
-      ShipFromAddr: shipFromAddr,
-      CustomerMemo: {
-        value: `Phone usage charges for ${moment(billingJob.startDate).format(
-          "MMMM YYYY"
-        )}`,
-      },
-      PrivateNote: `Generated by automated billing system - Job ID: ${billingJob.jobId}`,
-    };
+        DocNumber: `INV-${billingJob.jobId}-${client.id}`,
+        PrivateNote: `Phone usage billing for ${client.name}. Job ID: ${billingJob.jobId}`,
+        ShipFromAddr: companyInfo?.CompanyAddr || {
+          Line1: "Default Company Address",
+          City: "Default City",
+          CountrySubDivisionCode: "CA",
+          Country: "US",
+        },
+        BillEmail: {
+          Address: client.email || companyInfo?.Email?.Address,
+        },
+        ShipAddr: {
+          Line1: client.address || "No address provided",
+          City: client.city || "No city provided",
+          CountrySubDivisionCode: client.state || "CA",
+          Country: client.country || "US",
+        },
+      };
+
+      return invoicePayload;
+    } catch (error) {
+      logger.error("Failed to create invoice payload", {
+        error,
+        client,
+        totalMinutes,
+        totalAmount,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -654,7 +645,7 @@ export class BillingService {
     const invoicesFailed = results.filter((r) => r.error).length;
 
     await billingJobRepo.update(jobId, {
-      totalClients: results.length,
+      totalCustomers: results.length,
       totalInvoices: invoicesCreated,
       totalAmount,
       successfulInvoices: invoicesCreated,

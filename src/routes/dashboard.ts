@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { query, validationResult } from "express-validator";
 import { getRepository, Repository } from "typeorm";
 import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
-import { Client } from "../entities/Client";
+import { CustomerProfile } from "../entities/CustomerProfile";
 import { PhoneUsage } from "../entities/PhoneUsage";
 import { QBOService } from "../services/QBOService";
 import { GenesysService } from "../services/GenesysService";
@@ -43,8 +43,8 @@ const getBillingJobRepository = (): Repository<BillingJob> => {
   return getRepository(BillingJob);
 };
 
-const getClientRepository = (): Repository<Client> => {
-  return getRepository(Client);
+const getClientRepository = (): Repository<CustomerProfile> => {
+  return getRepository(CustomerProfile);
 };
 
 const getPhoneUsageRepository = (): Repository<PhoneUsage> => {
