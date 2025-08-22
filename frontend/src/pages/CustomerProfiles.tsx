@@ -681,15 +681,32 @@ export function CustomerProfiles() {
                           {profile.qboPrimaryEmailAddr || "No email"}
                         </div>
                         <div className="text-sm text-gray-500">
+                          {profile.qboPrimaryPhone || "No phone"}
+                        </div>
+                        <div className="text-sm text-gray-500">
                           {profile.qboLine1
                             ? `${profile.qboLine1}, ${profile.qboCity || ""}, ${
                                 profile.qboCountrySubDivisionCode || ""
-                              }`
+                              } ${
+                                profile.qboPostalCode
+                                  ? `, ${profile.qboPostalCode}`
+                                  : ""
+                              } ${profile.qboCountry || ""}`
                             : "No address"}
                         </div>
                         {profile.qboCompanyName && (
                           <div className="text-xs text-blue-600 mt-1">
-                            QBO: {profile.qboCompanyName}
+                            Company: {profile.qboCompanyName}
+                          </div>
+                        )}
+                        {profile.qboGivenName && profile.qboFamilyName && (
+                          <div className="text-xs text-gray-600 mt-1">
+                            {profile.qboTitle && `${profile.qboTitle} `}
+                            {profile.qboGivenName}{" "}
+                            {profile.qboMiddleName &&
+                              `${profile.qboMiddleName} `}
+                            {profile.qboFamilyName}
+                            {profile.qboSuffix && `, ${profile.qboSuffix}`}
                           </div>
                         )}
                         <div className="mt-1">
@@ -783,9 +800,22 @@ export function CustomerProfiles() {
                           </span>
                         )}
                       </div>
-                      {profile.qboDisplayName && (
-                        <div className="text-sm text-gray-500">
-                          {profile.qboDisplayName}
+                      <div className="text-sm text-gray-500 mt-1">
+                        {profile.qboDisplayName}
+                      </div>
+                      {profile.qboCompanyName &&
+                        profile.qboCompanyName !== profile.qboDisplayName && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            {profile.qboCompanyName}
+                          </div>
+                        )}
+                      {profile.qboGivenName && profile.qboFamilyName && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          {profile.qboTitle && `${profile.qboTitle} `}
+                          {profile.qboGivenName}{" "}
+                          {profile.qboMiddleName && `${profile.qboMiddleName} `}
+                          {profile.qboFamilyName}
+                          {profile.qboSuffix && `, ${profile.qboSuffix}`}
                         </div>
                       )}
                     </td>
@@ -1573,6 +1603,37 @@ function StatsModal({ profileId, onClose }: StatsModalProps) {
                       </span>
                       <div className="text-gray-900">
                         {stats.qboMetadata.qboPrimaryPhone || "Not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Personal Name:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboTitle &&
+                          `${stats.qboMetadata.qboTitle} `}
+                        {stats.qboMetadata.qboGivenName || ""}{" "}
+                        {stats.qboMetadata.qboMiddleName &&
+                          `${stats.qboMetadata.qboMiddleName} `}
+                        {stats.qboMetadata.qboFamilyName || ""}
+                        {stats.qboMetadata.qboSuffix &&
+                          `, ${stats.qboMetadata.qboSuffix}`}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">
+                        QBO Address:
+                      </span>
+                      <div className="text-gray-900">
+                        {stats.qboMetadata.qboLine1
+                          ? `${stats.qboMetadata.qboLine1}, ${
+                              stats.qboMetadata.qboCity || ""
+                            }, ${
+                              stats.qboMetadata.qboCountrySubDivisionCode || ""
+                            } ${stats.qboMetadata.qboPostalCode || ""} ${
+                              stats.qboMetadata.qboCountry || ""
+                            }`
+                          : "Not set"}
                       </div>
                     </div>
                   </div>

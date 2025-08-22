@@ -255,6 +255,12 @@ router.post(
       }
 
       const profileData: CreateCustomerProfileData = req.body;
+
+      // Convert empty qboCustomerId to undefined to avoid database constraint issues
+      if (profileData.qboCustomerId === "") {
+        profileData.qboCustomerId = undefined;
+      }
+
       const profile = await getCustomerProfileService().createCustomerProfile(
         profileData
       );
@@ -365,6 +371,12 @@ router.put(
 
       const { id } = req.params;
       const updateData: UpdateCustomerProfileData = req.body;
+
+      // Convert empty qboCustomerId to undefined to avoid database constraint issues
+      if (updateData.qboCustomerId === "") {
+        updateData.qboCustomerId = undefined;
+      }
+
       const profile = await getCustomerProfileService().updateCustomerProfile(
         id,
         updateData

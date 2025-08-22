@@ -119,9 +119,11 @@ export class CustomerProfileService {
 
       if (filters.hasGenesysQueues !== undefined) {
         if (filters.hasGenesysQueues) {
-          whereConditions.genesysQueueNames = Like("%");
+          whereConditions.genesysQueueNames =
+            "array_length(genesysQueueNames, 1) > 0";
         } else {
-          whereConditions.genesysQueueNames = [];
+          whereConditions.genesysQueueNames =
+            "array_length(genesysQueueNames, 1) IS NULL OR array_length(genesysQueueNames, 1) = 0";
         }
       }
 
@@ -158,12 +160,128 @@ export class CustomerProfileService {
         }));
       }
 
+      // Check if we need to use query builder for array operations
+      const needsQueryBuilder = Object.values(whereConditions).some(
+        (value) => typeof value === "string" && value.includes("array_length")
+      );
+
+      if (needsQueryBuilder) {
+        // Use query builder for array operations
+        const queryBuilder = this.customerProfileRepository
+          .createQueryBuilder("profile")
+          .leftJoinAndSelect("profile.phoneUsages", "phoneUsages");
+
+        // Apply array conditions
+        if (filters.hasGenesysQueues !== undefined) {
+          if (filters.hasGenesysQueues) {
+            queryBuilder.andWhere(
+              "array_length(profile.genesysQueueNames, 1) > 0"
+            );
+          } else {
+            queryBuilder.andWhere(
+              "(array_length(profile.genesysQueueNames, 1) IS NULL OR array_length(profile.genesysQueueNames, 1) = 0)"
+            );
+          }
+        }
+
+        if (filters.hasQboCustomerId !== undefined) {
+          if (filters.hasQboCustomerId) {
+            queryBuilder.andWhere(
+              "profile.qboCustomerId IS NOT NULL AND profile.qboCustomerId != ''"
+            );
+          } else {
+            queryBuilder.andWhere(
+              "(profile.qboCustomerId IS NULL OR profile.qboCustomerId = '')"
+            );
+          }
+        }
+
+        if (filters.isActive !== undefined) {
+          queryBuilder.andWhere("profile.isActive = :isActive", {
+            isActive: filters.isActive,
+          });
+        }
+
+        // Apply search conditions
+        if (searchConditions.length > 0) {
+          searchConditions.forEach((condition, index) => {
+            const key = Object.keys(condition)[0];
+            const value = condition[key];
+            if (key === "qboDisplayName") {
+              queryBuilder.andWhere(
+                `profile.qboDisplayName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboCustomerId") {
+              queryBuilder.andWhere(
+                `profile.qboCustomerId LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboPrimaryEmailAddr") {
+              queryBuilder.andWhere(
+                `profile.qboPrimaryEmailAddr LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboCompanyName") {
+              queryBuilder.andWhere(
+                `profile.qboCompanyName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboGivenName") {
+              queryBuilder.andWhere(
+                `profile.qboGivenName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            } else if (key === "qboFamilyName") {
+              queryBuilder.andWhere(
+                `profile.qboFamilyName LIKE :search${index}`,
+                {
+                  [`search${index}`]: value,
+                }
+              );
+            }
+          });
+        }
+
+        queryBuilder
+          .skip(skip)
+          .take(limit)
+          .orderBy("profile.createdAt", "DESC");
+
+        const [customerProfiles, total] = await queryBuilder.getManyAndCount();
+        const pages = Math.ceil(total / limit);
+
+        logger.info("Retrieved customer profiles with query builder", {
+          count: customerProfiles.length,
+          total,
+          page,
+          limit,
+          filters,
+        });
+
+        return {
+          customerProfiles,
+          pagination: {
+            page,
+            limit,
+            total,
+            pages,
+          },
+        };
+      }
+
       // Filter by specific queue name if provided
       if (filters.queueName) {
-        findOptions.where = {
-          ...findOptions.where,
-        };
-        // Use query builder for array filtering
         const queryBuilder = this.customerProfileRepository
           .createQueryBuilder("profile")
           .leftJoinAndSelect("profile.phoneUsages", "phoneUsages")
