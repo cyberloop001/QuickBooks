@@ -61,7 +61,18 @@ interface BillingJob {
 interface SystemStatus {
   qbo: any;
   genesys: any;
-  scheduler: any;
+  scheduler: {
+    billing: {
+      isRunning: boolean;
+      totalScheduledJobs: number;
+      scheduledJobs: Array<{
+        customerId: string;
+        billDate: number;
+        nextRun: Date;
+      }>;
+      timezone: string;
+    };
+  };
   overall: {
     healthy: boolean;
     issues: string[];
@@ -153,23 +164,52 @@ export function Dashboard() {
       </div>
 
       {/* System Health Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
         <div className="bg-white p-6 rounded-lg shadow border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium">System Health</h3>
             <span
               className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSystemHealthColor(
-                systemStatus.overall.healthy
+                systemStatus.overall.healthy && qboStatus?.connected
               )}`}
             >
-              {systemStatus.overall.healthy ? "Healthy" : "Issues"}
+              {systemStatus.overall.healthy && qboStatus?.connected
+                ? "Healthy"
+                : "Issues"}
             </span>
           </div>
           <div className="pt-4">
             <div className="text-2xl font-bold">
-              {systemStatus.overall.issues.length}
+              {systemStatus.overall.issues.length +
+                (qboStatus?.connected === false ? 1 : 0)}
             </div>
             <p className="text-xs text-gray-500">Active issues</p>
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            <div className="flex items-center space-x-1">
+              <span>Genesys:</span>
+              {systemStatus.genesys.hasValidToken ? (
+                <CheckCircle className="h-3 w-3 text-green-600" />
+              ) : (
+                <AlertTriangle className="h-3 w-3 text-red-600" />
+              )}
+            </div>
+            <div className="flex items-center space-x-1">
+              <span>Scheduler:</span>
+              {systemStatus.scheduler.billing?.totalScheduledJobs > 0 ? (
+                <CheckCircle className="h-3 w-3 text-green-600" />
+              ) : (
+                <AlertTriangle className="h-3 w-3 text-red-600" />
+              )}
+            </div>
+            <div className="flex items-center space-x-1">
+              <span>QBO:</span>
+              {qboStatus?.connected ? (
+                <CheckCircle className="h-3 w-3 text-green-600" />
+              ) : (
+                <AlertTriangle className="h-3 w-3 text-red-600" />
+              )}
+            </div>
           </div>
         </div>
 
@@ -207,6 +247,19 @@ export function Dashboard() {
               {overview.usage.totalMinutes}
             </div>
             <p className="text-xs text-gray-500">Minutes this month</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow border">
+          <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 className="text-sm font-medium">Billing Schedules</h3>
+            <Calendar className="h-4 w-4 text-gray-500" />
+          </div>
+          <div className="pt-4">
+            <div className="text-2xl font-bold">
+              {systemStatus.scheduler.billing?.totalScheduledJobs || 0}
+            </div>
+            <p className="text-xs text-gray-500">Active schedules</p>
           </div>
         </div>
       </div>
@@ -251,19 +304,21 @@ export function Dashboard() {
       <div className="space-y-4">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8">
-            {["overview", "billing", "system", "usage"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
-                  activeTab === tab
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+            {["overview", "billing", "schedules", "system", "usage"].map(
+              (tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
+                    activeTab === tab
+                      ? "border-blue-500 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  {tab}
+                </button>
+              )
+            )}
           </nav>
         </div>
 
@@ -344,17 +399,66 @@ export function Dashboard() {
                       Next billing run:
                     </span>
                     <span className="font-medium">
-                      {systemStatus.scheduler.nextRun
+                      {systemStatus.scheduler.billing?.scheduledJobs?.length > 0
                         ? format(
-                            new Date(systemStatus.scheduler.nextRun),
+                            new Date(
+                              systemStatus.scheduler.billing.scheduledJobs[0].nextRun
+                            ),
                             "MMM dd, yyyy HH:mm"
                           )
-                        : "Not scheduled"}
+                        : "No schedules"}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* Customer Billing Schedules */}
+            {systemStatus.scheduler.billing?.scheduledJobs?.length > 0 && (
+              <div className="bg-white p-6 rounded-lg shadow border">
+                <div className="pb-2">
+                  <h3 className="text-lg font-medium flex items-center">
+                    <Users className="h-5 w-5 mr-2" />
+                    Customer Billing Schedules
+                  </h3>
+                </div>
+                <div className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {systemStatus.scheduler.billing.scheduledJobs
+                      .slice(0, 6)
+                      .map((schedule, index) => (
+                        <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-900">
+                              Customer {schedule.customerId.slice(0, 8)}...
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              Day {schedule.billDate}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            Next:{" "}
+                            {format(
+                              new Date(schedule.nextRun),
+                              "MMM dd, HH:mm"
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                  {systemStatus.scheduler.billing.scheduledJobs.length > 6 && (
+                    <div className="text-center mt-4">
+                      <span className="text-sm text-gray-500">
+                        +
+                        {systemStatus.scheduler.billing.scheduledJobs.length -
+                          6}{" "}
+                        more schedules
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -409,6 +513,41 @@ export function Dashboard() {
           </div>
         )}
 
+        {activeTab === "schedules" && (
+          <div className="space-y-4">
+            <div className="bg-white p-6 rounded-lg shadow border">
+              <div className="pb-2">
+                <h3 className="text-lg font-medium flex items-center">
+                  <Users className="h-5 w-5 mr-2" />
+                  Customer Billing Schedules
+                </h3>
+              </div>
+              <div className="pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {systemStatus.scheduler.billing?.scheduledJobs?.map(
+                    (schedule, index) => (
+                      <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-900">
+                            Customer {schedule.customerId.slice(0, 8)}...
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Day {schedule.billDate}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Next:{" "}
+                          {format(new Date(schedule.nextRun), "MMM dd, HH:mm")}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "system" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -422,21 +561,40 @@ export function Dashboard() {
                 </div>
                 <div className="pt-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {qboStatus?.authenticated ? (
+                    {qboStatus?.connected ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                     )}
                     <span className="text-sm">
-                      {qboStatus?.authenticated ? "Connected" : "Disconnected"}
+                      {qboStatus?.connected ? "Connected" : "Disconnected"}
                     </span>
                   </div>
+
+                  {qboStatus?.companyInfo && (
+                    <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                      <div className="font-medium">
+                        Company: {qboStatus.companyInfo.companyName}
+                      </div>
+                      <div>
+                        Environment: {qboStatus.companyInfo.environment}
+                      </div>
+                    </div>
+                  )}
+
                   {qboStatus?.tokenStatus?.expiresIn && (
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        Expires in {qboStatus.tokenStatus.expiresIn}
+                        Token expires in {qboStatus.tokenStatus.expiresIn}
                       </span>
+                    </div>
+                  )}
+
+                  {qboStatus?.connected === false && (
+                    <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
+                      QBO connection failed - billing integration may be
+                      affected
                     </div>
                   )}
                 </div>
@@ -482,33 +640,48 @@ export function Dashboard() {
               <div className="bg-white p-6 rounded-lg shadow border">
                 <div className="pb-2">
                   <h3 className="text-lg font-medium flex items-center">
-                    <Calendar className="h-5 w-5 mr-2" />
+                    <Calendar className="h-5 w-4 mr-2" />
                     Billing Scheduler
                   </h3>
                 </div>
                 <div className="pt-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {systemStatus.scheduler.isSchedulerActive ? (
+                    {systemStatus.scheduler.billing?.totalScheduledJobs > 0 ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                     )}
                     <span className="text-sm">
-                      {systemStatus.scheduler.isSchedulerActive
+                      {systemStatus.scheduler.billing?.totalScheduledJobs > 0
                         ? "Active"
-                        : "Inactive"}
+                        : "No schedules"}
                     </span>
                   </div>
-                  {systemStatus.scheduler.nextRun && (
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm text-gray-600">
+                      {systemStatus.scheduler.billing?.totalScheduledJobs || 0}{" "}
+                      customer schedules
+                    </span>
+                  </div>
+                  {systemStatus.scheduler.billing?.isRunning && (
                     <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">
-                        Next run{" "}
-                        {format(
-                          new Date(systemStatus.scheduler.nextRun),
-                          "MMM dd, HH:mm"
-                        )}
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span className="text-sm text-blue-600">
+                        Processing billing...
                       </span>
+                    </div>
+                  )}
+                  {systemStatus.scheduler.billing?.scheduledJobs?.length >
+                    0 && (
+                    <div className="text-xs text-gray-500">
+                      Next run:{" "}
+                      {format(
+                        new Date(
+                          systemStatus.scheduler.billing.scheduledJobs[0].nextRun
+                        ),
+                        "MMM dd, HH:mm"
+                      )}
                     </div>
                   )}
                 </div>
