@@ -11,6 +11,13 @@ export interface CreateCustomerProfileData {
   notes?: string;
   isActive?: boolean;
 
+  // Billing Configuration Fields
+  billDate?: number;
+  billingPeriodStart?: number;
+  billingPeriodEnd?: number;
+  minimumMinutes?: number;
+  overageRatePerMinute?: number;
+
   // QBO Customer Fields
   qboDisplayName: string; // Required
   qboCompanyName?: string;
@@ -39,6 +46,13 @@ export interface UpdateCustomerProfileData {
   taxCode?: string;
   notes?: string;
   isActive?: boolean;
+
+  // Billing Configuration Fields
+  billDate?: number;
+  billingPeriodStart?: number;
+  billingPeriodEnd?: number;
+  minimumMinutes?: number;
+  overageRatePerMinute?: number;
 
   // QBO Customer Fields
   qboDisplayName?: string;

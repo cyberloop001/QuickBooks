@@ -106,6 +106,7 @@ router.get("/overview", async (req: Request, res: Response) => {
         system: {
           genesys: genesysStatus,
           scheduler: schedulerStatus,
+          genesysConnected: genesysStatus,
         },
         config: {
           timezone: config.billing.timezone,
@@ -276,11 +277,11 @@ router.get("/system-status", async (req: Request, res: Response) => {
         scheduler: schedulerStatus,
         overall: {
           healthy:
-            genesysConnected && schedulerStatus.billing.isSchedulerActive,
+            genesysConnected && schedulerStatus.billing.totalScheduledJobs > 0,
           issues: [
             !genesysConnected && "Genesys connection failed",
-            !schedulerStatus.billing.isSchedulerActive &&
-              "Scheduler not active",
+            schedulerStatus.billing.totalScheduledJobs === 0 &&
+              "No billing schedules active",
           ].filter(Boolean),
         },
       },

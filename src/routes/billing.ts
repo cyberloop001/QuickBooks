@@ -437,7 +437,10 @@ router.get("/status", async (req: Request, res: Response) => {
       data: {
         scheduler: schedulerStatus,
         lastRun: new Date().toISOString(),
-        nextRun: schedulerStatus.billing.nextRun,
+        nextRun:
+          schedulerStatus.billing.scheduledJobs.length > 0
+            ? schedulerStatus.billing.scheduledJobs[0].nextRun.toISOString()
+            : null,
         timezone: config.billing.timezone,
       },
     });

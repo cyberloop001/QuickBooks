@@ -1,11 +1,11 @@
-import { BillingScheduler } from "./billingScheduler";
+import { CustomerBillingScheduler } from "./billingScheduler";
 import { logger } from "../utils/logger";
 
 export class JobScheduler {
-  private billingScheduler: BillingScheduler;
+  private billingScheduler: CustomerBillingScheduler;
 
   constructor() {
-    this.billingScheduler = new BillingScheduler();
+    this.billingScheduler = new CustomerBillingScheduler();
   }
 
   /**
@@ -14,7 +14,7 @@ export class JobScheduler {
   async setupScheduledJobs(): Promise<void> {
     try {
       // Start the billing scheduler
-      this.billingScheduler.start();
+      this.billingScheduler.initializeScheduler();
 
       logger.info("All scheduled jobs have been setup successfully");
     } catch (error) {

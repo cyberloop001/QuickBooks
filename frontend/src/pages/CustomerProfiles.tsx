@@ -23,6 +23,13 @@ interface CustomerProfile {
   taxCode?: string;
   notes?: string;
 
+  // Billing Configuration Fields
+  billDate: number;
+  billingPeriodStart: number;
+  billingPeriodEnd: number;
+  minimumMinutes: number;
+  overageRatePerMinute: number;
+
   // QBO Customer Fields
   qboDisplayName: string; // Required
   qboCompanyName?: string;
@@ -640,6 +647,9 @@ export function CustomerProfiles() {
                   QBO Mapping
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Billing Config
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Rate/Min
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -654,7 +664,7 @@ export function CustomerProfiles() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-6 py-4 text-center text-gray-500"
                   >
                     Loading customer profiles...
@@ -663,7 +673,7 @@ export function CustomerProfiles() {
               ) : customerProfiles.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-6 py-4 text-center text-gray-500"
                   >
                     No customer profiles found
@@ -819,6 +829,23 @@ export function CustomerProfiles() {
                         </div>
                       )}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        <div className="font-medium text-gray-900">
+                          Bill: Day {profile.billDate}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Period: {profile.billingPeriodStart} -{" "}
+                          {profile.billingPeriodEnd}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Min: {profile.minimumMinutes} min
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Overage: ${profile.overageRatePerMinute}/min
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${profile.ratePerMinute}
                     </td>
@@ -952,6 +979,13 @@ function CustomerProfileModal({
     notes: profile?.notes || "",
     isActive: profile?.isActive ?? true,
 
+    // Billing Configuration Fields
+    billDate: profile?.billDate || 1,
+    billingPeriodStart: profile?.billingPeriodStart || 1,
+    billingPeriodEnd: profile?.billingPeriodEnd || 31,
+    minimumMinutes: profile?.minimumMinutes || 0,
+    overageRatePerMinute: profile?.overageRatePerMinute || 1.0,
+
     // QBO Customer Fields
     qboDisplayName: profile?.qboDisplayName || "",
     qboCompanyName: profile?.qboCompanyName || "",
@@ -1017,7 +1051,7 @@ function CustomerProfileModal({
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto w-full z-50">
       <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">
+          <h3 className="text-xl font-bold text-gray-900">
             {profile ? "Edit Customer Profile" : "Add Customer Profile"}
           </h3>
           <button
@@ -1029,227 +1063,347 @@ function CustomerProfileModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Display Name *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.qboDisplayName}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboDisplayName: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Required for QBO integration"
-              />
-            </div>
+          <div className="border-t pt-4">
+            <h4 className="text-lg font-medium text-green-400 mb-3">
+              Basic Information
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Display Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.qboDisplayName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboDisplayName: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Required for QBO integration"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Customer ID
-              </label>
-              <input
-                type="text"
-                value={formData.qboCustomerId}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboCustomerId: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Customer ID
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboCustomerId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboCustomerId: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Company Name
-              </label>
-              <input
-                type="text"
-                value={formData.qboCompanyName}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboCompanyName: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Company Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboCompanyName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboCompanyName: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Given Name
-              </label>
-              <input
-                type="text"
-                value={formData.qboGivenName}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboGivenName: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional - First name"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Given Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboGivenName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboGivenName: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional - First name"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Family Name
-              </label>
-              <input
-                type="text"
-                value={formData.qboFamilyName}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboFamilyName: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional - Last name"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Family Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboFamilyName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboFamilyName: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional - Last name"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Middle Name
-              </label>
-              <input
-                type="text"
-                value={formData.qboMiddleName}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboMiddleName: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Middle Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboMiddleName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboMiddleName: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Title
-              </label>
-              <input
-                type="text"
-                value={formData.qboTitle}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboTitle: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional - Mr, Mrs, Dr, etc."
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Title
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboTitle}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboTitle: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional - Mr, Mrs, Dr, etc."
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Suffix
-              </label>
-              <input
-                type="text"
-                value={formData.qboSuffix}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboSuffix: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional - Jr, Sr, III, etc."
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Suffix
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboSuffix}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboSuffix: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional - Jr, Sr, III, etc."
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Primary Email
-              </label>
-              <input
-                type="email"
-                value={formData.qboPrimaryEmailAddr}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboPrimaryEmailAddr: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Primary Email
+                </label>
+                <input
+                  type="email"
+                  value={formData.qboPrimaryEmailAddr}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboPrimaryEmailAddr: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                QBO Primary Phone
-              </label>
-              <input
-                type="text"
-                value={formData.qboPrimaryPhone}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    qboPrimaryPhone: e.target.value,
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  QBO Primary Phone
+                </label>
+                <input
+                  type="text"
+                  value={formData.qboPrimaryPhone}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      qboPrimaryPhone: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Rate Per Minute *
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                value={formData.ratePerMinute}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    ratePerMinute: parseFloat(e.target.value),
-                  }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Rate Per Minute *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={formData.ratePerMinute}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      ratePerMinute: parseFloat(e.target.value),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Tax Code
-              </label>
-              <input
-                type="text"
-                value={formData.taxCode}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, taxCode: e.target.value }))
-                }
-                className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Optional"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Tax Code
+                </label>
+                <input
+                  type="text"
+                  value={formData.taxCode}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      taxCode: e.target.value,
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+          </div>
+          {/* Billing Configuration Fields */}
+          <div className="border-t pt-4">
+            <h4 className="text-lg font-medium text-green-400 mb-3">
+              Billing Configuration
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Bill Date (Day of Month)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={formData.billDate}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      billDate: parseInt(e.target.value, 10),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Day of month to bill (1-31)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Billing Period Start (Day)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={formData.billingPeriodStart}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      billingPeriodStart: parseInt(e.target.value, 10),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Day billing period starts (1-31)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Billing Period End (Day)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={formData.billingPeriodEnd}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      billingPeriodEnd: parseInt(e.target.value, 10),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Day billing period ends (1-31)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Minimum Minutes
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.minimumMinutes}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      minimumMinutes: parseInt(e.target.value, 10),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Minutes included in base rate
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Overage Rate Per Minute
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.overageRatePerMinute}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      overageRatePerMinute: parseFloat(e.target.value),
+                    }))
+                  }
+                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Rate for minutes over minimum
+                </p>
+              </div>
             </div>
           </div>
 
           {/* QBO Address Fields */}
           <div className="border-t pt-4">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">
+            <h4 className="text-lg font-medium text-green-400 mb-3">
               QuickBooks Address Information
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
