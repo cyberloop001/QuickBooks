@@ -70,7 +70,6 @@ GENESYS_ORGANIZATION_ID=your-org-id
 
 # Billing Configuration
 BILLING_TIMEZONE=America/Los_Angeles
-BILLING_RATE_PER_MINUTE=0.15
 BILLING_CURRENCY=USD
 
 # Security

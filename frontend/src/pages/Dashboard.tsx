@@ -30,6 +30,7 @@ interface DashboardOverview {
   usage: {
     totalMinutes: number;
     totalCalls: number;
+    totalAmount: number;
   };
   system: {
     qbo: any;
@@ -335,14 +336,6 @@ export function Dashboard() {
                     <span className="text-sm text-gray-600">Timezone:</span>
                     <span className="font-medium">
                       {overview.config.timezone}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">
-                      Rate per minute:
-                    </span>
-                    <span className="font-medium">
-                      ${overview.config.ratePerMinute}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -714,11 +707,7 @@ export function Dashboard() {
                   </div>
                   <div className="text-center p-4 bg-purple-50 rounded-lg">
                     <div className="text-3xl font-bold text-purple-600">
-                      $
-                      {(
-                        overview.usage.totalMinutes *
-                        overview.config.ratePerMinute
-                      ).toFixed(2)}
+                      ${overview.usage.totalAmount}
                     </div>
                     <p className="text-sm text-purple-600">Estimated Revenue</p>
                   </div>

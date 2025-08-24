@@ -267,6 +267,7 @@ export class BillingService {
    */
   private async storePhoneUsageData(usageData: any[]): Promise<void> {
     const phoneUsageRepo = getRepository(PhoneUsage);
+    const customerProfileRepo = getRepository(CustomerProfile);
 
     for (const usage of usageData) {
       // Check if usage already exists
@@ -275,6 +276,12 @@ export class BillingService {
       });
 
       if (!existingUsage) {
+        // Get customer profile for billing calculation
+        const customerProfile = await customerProfileRepo.findOne({
+          where: { id: usage.customerProfileId },
+          select: ["minimumMinutes", "overageRatePerMinute", "ratePerMinute"],
+        });
+
         const phoneUsage = new PhoneUsage();
         phoneUsage.callId = usage.call_id;
         phoneUsage.customerProfileId = usage.customerProfileId;
@@ -284,8 +291,29 @@ export class BillingService {
         phoneUsage.startedPst = new Date(usage.started_pst);
         phoneUsage.endedPst = new Date(usage.ended_pst);
         phoneUsage.billableMinutes = usage.billable_seconds / 60;
-        phoneUsage.amount =
-          (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+
+        // Calculate amount based on customer profile billing settings
+        if (customerProfile) {
+          const minutes = usage.billable_seconds / 60;
+          const { minimumMinutes, overageRatePerMinute, ratePerMinute } =
+            customerProfile;
+
+          if (minimumMinutes > 0) {
+            // Package pricing: minimum + overage
+            const baseMinutes = Math.min(minutes, minimumMinutes);
+            const overageMinutes = Math.max(0, minutes - minimumMinutes);
+            phoneUsage.amount =
+              baseMinutes * ratePerMinute +
+              overageMinutes * overageRatePerMinute;
+          } else {
+            // Flat rate pricing
+            phoneUsage.amount = minutes * ratePerMinute;
+          }
+        } else {
+          // Fallback to default rate
+          phoneUsage.amount = (usage.billable_seconds / 60) * 1.0;
+        }
+
         phoneUsage.isBilled = false;
 
         await phoneUsageRepo.save(phoneUsage);
@@ -334,8 +362,27 @@ export class BillingService {
       clientUsage.totalCalls++;
       clientUsage.totalSeconds += usage.billable_seconds;
       clientUsage.totalMinutes += usage.billable_seconds / 60;
-      clientUsage.totalAmount +=
-        (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+
+      // Calculate amount based on customer profile billing settings
+      const minutes = usage.billable_seconds / 60;
+      if (clientUsage.client.minimumMinutes > 0) {
+        // Package pricing: minimum + overage
+        const baseMinutes = Math.min(
+          minutes,
+          clientUsage.client.minimumMinutes
+        );
+        const overageMinutes = Math.max(
+          0,
+          minutes - clientUsage.client.minimumMinutes
+        );
+        clientUsage.totalAmount +=
+          baseMinutes * clientUsage.client.ratePerMinute +
+          overageMinutes * clientUsage.client.overageRatePerMinute;
+      } else {
+        // Flat rate pricing
+        clientUsage.totalAmount += minutes * clientUsage.client.ratePerMinute;
+      }
+
       clientUsage.calls.push(usage);
     }
 

@@ -37,7 +37,6 @@ export const config = {
     organizationId: process.env.GENESYS_ORG_ID || "",
   },
   billing: {
-    ratePerMinute: parseFloat(process.env.BILLING_RATE_PER_MINUTE || "1.00"),
     currency: process.env.BILLING_CURRENCY || "USD",
     timezone: process.env.BILLING_TIMEZONE || "America/Los_Angeles",
     itemId: process.env.BILLING_ITEM_ID || "",

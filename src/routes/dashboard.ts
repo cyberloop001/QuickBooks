@@ -76,6 +76,7 @@ router.get("/overview", async (req: Request, res: Response) => {
         .createQueryBuilder("usage")
         .select("SUM(usage.billableMinutes)", "totalMinutes")
         .addSelect("COUNT(usage.id)", "totalCalls")
+        .addSelect("SUM(usage.amount)", "totalAmount")
         .where("usage.createdAt >= :date", {
           date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
         })
@@ -102,6 +103,7 @@ router.get("/overview", async (req: Request, res: Response) => {
         usage: {
           totalMinutes: recentUsage?.totalMinutes || 0,
           totalCalls: recentUsage?.totalCalls || 0,
+          totalAmount: recentUsage?.totalAmount || 0,
         },
         system: {
           genesys: genesysStatus,
@@ -110,7 +112,6 @@ router.get("/overview", async (req: Request, res: Response) => {
         },
         config: {
           timezone: config.billing.timezone,
-          ratePerMinute: config.billing.ratePerMinute,
           currency: config.billing.currency,
         },
       },
