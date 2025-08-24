@@ -267,6 +267,7 @@ export class BillingService {
    */
   private async storePhoneUsageData(usageData: any[]): Promise<void> {
     const phoneUsageRepo = getRepository(PhoneUsage);
+    const customerProfileRepo = getRepository(CustomerProfile);
 
     for (const usage of usageData) {
       // Check if usage already exists
@@ -275,6 +276,12 @@ export class BillingService {
       });
 
       if (!existingUsage) {
+        // Get customer profile for billing calculation
+        const customerProfile = await customerProfileRepo.findOne({
+          where: { id: usage.customerProfileId },
+          select: ["minimumMinutes", "overageRatePerMinute", "ratePerMinute"],
+        });
+
         const phoneUsage = new PhoneUsage();
         phoneUsage.callId = usage.call_id;
         phoneUsage.customerProfileId = usage.customerProfileId;
@@ -284,8 +291,29 @@ export class BillingService {
         phoneUsage.startedPst = new Date(usage.started_pst);
         phoneUsage.endedPst = new Date(usage.ended_pst);
         phoneUsage.billableMinutes = usage.billable_seconds / 60;
-        phoneUsage.amount =
-          (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+
+        // Calculate amount based on customer profile billing settings
+        if (customerProfile) {
+          const minutes = usage.billable_seconds / 60;
+          const { minimumMinutes, overageRatePerMinute, ratePerMinute } =
+            customerProfile;
+
+          if (minimumMinutes > 0) {
+            // Package pricing: minimum + overage
+            const baseMinutes = Math.min(minutes, minimumMinutes);
+            const overageMinutes = Math.max(0, minutes - minimumMinutes);
+            phoneUsage.amount =
+              baseMinutes * ratePerMinute +
+              overageMinutes * overageRatePerMinute;
+          } else {
+            // Flat rate pricing
+            phoneUsage.amount = minutes * ratePerMinute;
+          }
+        } else {
+          // Fallback to default rate
+          phoneUsage.amount = (usage.billable_seconds / 60) * 1.0;
+        }
+
         phoneUsage.isBilled = false;
 
         await phoneUsageRepo.save(phoneUsage);
@@ -334,8 +362,27 @@ export class BillingService {
       clientUsage.totalCalls++;
       clientUsage.totalSeconds += usage.billable_seconds;
       clientUsage.totalMinutes += usage.billable_seconds / 60;
-      clientUsage.totalAmount +=
-        (usage.billable_seconds / 60) * config.billing.ratePerMinute;
+
+      // Calculate amount based on customer profile billing settings
+      const minutes = usage.billable_seconds / 60;
+      if (clientUsage.client.minimumMinutes > 0) {
+        // Package pricing: minimum + overage
+        const baseMinutes = Math.min(
+          minutes,
+          clientUsage.client.minimumMinutes
+        );
+        const overageMinutes = Math.max(
+          0,
+          minutes - clientUsage.client.minimumMinutes
+        );
+        clientUsage.totalAmount +=
+          baseMinutes * clientUsage.client.ratePerMinute +
+          overageMinutes * clientUsage.client.overageRatePerMinute;
+      } else {
+        // Flat rate pricing
+        clientUsage.totalAmount += minutes * clientUsage.client.ratePerMinute;
+      }
+
       clientUsage.calls.push(usage);
     }
 
@@ -665,6 +712,150 @@ export class BillingService {
       });
     } catch (error) {
       logger.error("Failed to get billing job", { error, jobId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get multiple billing jobs with pagination and filtering
+   */
+  async getBillingJobs(options: {
+    page?: number;
+    limit?: number;
+    status?: BillingJobStatus;
+    type?: BillingJobType;
+    customerProfileId?: string;
+  }): Promise<{
+    jobs: BillingJob[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  }> {
+    try {
+      const { page = 1, limit = 20, status, type, customerProfileId } = options;
+
+      const billingJobRepo = this.billingJobRepository;
+      const queryBuilder = billingJobRepo.createQueryBuilder("job");
+
+      // Add filters
+      if (status) {
+        queryBuilder.andWhere("job.status = :status", { status });
+      }
+
+      if (type) {
+        queryBuilder.andWhere("job.type = :type", { type });
+      }
+
+      if (customerProfileId) {
+        queryBuilder.andWhere("job.customerProfileId = :customerProfileId", {
+          customerProfileId,
+        });
+      }
+
+      // Get total count for pagination
+      const total = await queryBuilder.getCount();
+
+      // Add pagination and ordering
+      const offset = (page - 1) * limit;
+      queryBuilder.orderBy("job.createdAt", "DESC").skip(offset).take(limit);
+
+      // Execute query
+      const jobs = await queryBuilder.getMany();
+
+      // Calculate pagination info
+      const pages = Math.ceil(total / limit);
+
+      return {
+        jobs,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages,
+        },
+      };
+    } catch (error) {
+      logger.error("Failed to get billing jobs", { error, options });
+      throw error;
+    }
+  }
+
+  /**
+   * Retry a failed billing job
+   */
+  async retryBillingJob(jobId: string): Promise<BillingResult> {
+    try {
+      const billingJobRepo = this.billingJobRepository;
+
+      // Get the original job
+      const originalJob = await billingJobRepo.findOne({
+        where: { jobId },
+      });
+
+      if (!originalJob) {
+        throw new Error("Billing job not found");
+      }
+
+      if (originalJob.status !== BillingJobStatus.FAILED) {
+        throw new Error("Only failed jobs can be retried");
+      }
+
+      logger.info(`Retrying billing job ${jobId}`, { jobId });
+
+      // Create a new job with the same parameters
+      const newJobId = `RETRY_${originalJob.jobId}_${uuidv4().substring(0, 8)}`;
+
+      const result = await this.runBillingJob(
+        originalJob.startDate,
+        originalJob.endDate,
+        undefined, // No specific client for retry
+        false // Not a dry run
+      );
+
+      return result;
+    } catch (error) {
+      logger.error(`Failed to retry billing job ${jobId}`, { error, jobId });
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a billing job
+   */
+  async cancelBillingJob(jobId: string): Promise<void> {
+    try {
+      const billingJobRepo = this.billingJobRepository;
+
+      // Get the job
+      const job = await billingJobRepo.findOne({
+        where: { jobId },
+      });
+
+      if (!job) {
+        throw new Error("Billing job not found");
+      }
+
+      if (
+        job.status === BillingJobStatus.COMPLETED ||
+        job.status === BillingJobStatus.CANCELLED
+      ) {
+        throw new Error("Cannot cancel completed or already cancelled jobs");
+      }
+
+      logger.info(`Cancelling billing job ${jobId}`, {
+        jobId,
+        currentStatus: job.status,
+      });
+
+      // Update job status to cancelled
+      await this.updateBillingJobStatus(job.id, BillingJobStatus.CANCELLED);
+
+      logger.info(`Successfully cancelled billing job ${jobId}`);
+    } catch (error) {
+      logger.error(`Failed to cancel billing job ${jobId}`, { error, jobId });
       throw error;
     }
   }

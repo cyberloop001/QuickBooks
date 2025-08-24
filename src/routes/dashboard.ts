@@ -4,7 +4,6 @@ import { getRepository, Repository } from "typeorm";
 import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
 import { CustomerProfile } from "../entities/CustomerProfile";
 import { PhoneUsage } from "../entities/PhoneUsage";
-import { QBOService } from "../services/QBOService";
 import { GenesysService } from "../services/GenesysService";
 import { JobScheduler } from "../jobs/scheduler";
 import { logger } from "../utils/logger";
@@ -13,16 +12,8 @@ import { config } from "../config";
 const router = Router();
 
 // Lazy initialization of services to avoid database connection issues
-let qboService: QBOService | null = null;
 let genesysService: GenesysService | null = null;
 let jobScheduler: JobScheduler | null = null;
-
-const getQBOService = (): QBOService => {
-  if (!qboService) {
-    qboService = new QBOService();
-  }
-  return qboService;
-};
 
 const getGenesysService = (): GenesysService => {
   if (!genesysService) {
@@ -85,6 +76,7 @@ router.get("/overview", async (req: Request, res: Response) => {
         .createQueryBuilder("usage")
         .select("SUM(usage.billableMinutes)", "totalMinutes")
         .addSelect("COUNT(usage.id)", "totalCalls")
+        .addSelect("SUM(usage.amount)", "totalAmount")
         .where("usage.createdAt >= :date", {
           date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
         })
@@ -92,9 +84,8 @@ router.get("/overview", async (req: Request, res: Response) => {
     ]);
 
     // Get system status
-    const qboStatus = getQBOService().getTokenStatus();
     const genesysStatus = getGenesysService().getStatus();
-    const schedulerStatus = getJobScheduler().getStatus();
+    const schedulerStatus = await getJobScheduler().getStatus();
 
     res.json({
       success: true,
@@ -112,15 +103,15 @@ router.get("/overview", async (req: Request, res: Response) => {
         usage: {
           totalMinutes: recentUsage?.totalMinutes || 0,
           totalCalls: recentUsage?.totalCalls || 0,
+          totalAmount: recentUsage?.totalAmount || 0,
         },
         system: {
-          qbo: qboStatus,
           genesys: genesysStatus,
           scheduler: schedulerStatus,
+          genesysConnected: genesysStatus,
         },
         config: {
           timezone: config.billing.timezone,
-          ratePerMinute: config.billing.ratePerMinute,
           currency: config.billing.currency,
         },
       },
@@ -257,87 +248,17 @@ router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
 });
 
 /**
- * POST /dashboard/billing-jobs/run - Run manual billing job
- */
-router.post(
-  "/billing-jobs/run",
-  [
-    query("startDate")
-      .isISO8601()
-      .withMessage("Start date must be a valid ISO date"),
-    query("endDate")
-      .isISO8601()
-      .withMessage("End date must be a valid ISO date"),
-    query("clientId")
-      .optional()
-      .isString()
-      .withMessage("Client ID must be a string"),
-    query("isDryRun")
-      .optional()
-      .isBoolean()
-      .withMessage("isDryRun must be a boolean"),
-  ],
-  async (req: Request, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          errors: errors.array(),
-        });
-      }
-
-      const { startDate, endDate, clientId, isDryRun = false } = req.query;
-
-      const start = new Date(startDate as string);
-      const end = new Date(endDate as string);
-
-      // Validate date range
-      if (start >= end) {
-        return res.status(400).json({
-          success: false,
-          error: "Start date must be before end date",
-        });
-      }
-
-      const result = await getJobScheduler().runManualBilling(
-        start,
-        end,
-        clientId as string,
-        isDryRun as boolean
-      );
-
-      res.json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      logger.error("Failed to run manual billing job", { error });
-      res.status(500).json({
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to run billing job",
-      });
-    }
-  }
-);
-
-/**
  * GET /dashboard/system-status - Get comprehensive system status
  */
 router.get("/system-status", async (req: Request, res: Response) => {
   try {
-    const [qboStatus, genesysStatus, schedulerStatus] = await Promise.all([
-      getQBOService().getTokenStatus(),
+    const [genesysStatus, schedulerStatus] = await Promise.all([
       getGenesysService().getStatus(),
       getJobScheduler().getStatus(),
     ]);
 
     // Test connections
-    const [qboConnected, genesysConnected] = await Promise.all([
-      getQBOService()
-        .testConnection()
-        .catch(() => false),
+    const [genesysConnected] = await Promise.all([
       getGenesysService()
         .testConnection()
         .catch(() => false),
@@ -345,23 +266,11 @@ router.get("/system-status", async (req: Request, res: Response) => {
 
     // Get company information if QBO is connected
     let companyInfo: any = null;
-    if (qboConnected) {
-      try {
-        companyInfo = await getQBOService().getCompanyInfo();
-      } catch (error) {
-        logger.warn("Failed to get company info for system status", { error });
-      }
-    }
+    // QBO status is now handled separately in QBO routes
 
     res.json({
       success: true,
       data: {
-        qbo: {
-          ...qboStatus,
-          connected: qboConnected,
-          companyName: companyInfo?.CompanyName,
-          environment: config.qbo.environment,
-        },
         genesys: {
           ...genesysStatus,
           connected: genesysConnected,
@@ -369,14 +278,11 @@ router.get("/system-status", async (req: Request, res: Response) => {
         scheduler: schedulerStatus,
         overall: {
           healthy:
-            qboConnected &&
-            genesysConnected &&
-            schedulerStatus.billing.isSchedulerActive,
+            genesysConnected && schedulerStatus.billing.totalScheduledJobs > 0,
           issues: [
-            !qboConnected && "QBO connection failed",
             !genesysConnected && "Genesys connection failed",
-            !schedulerStatus.billing.isSchedulerActive &&
-              "Scheduler not active",
+            schedulerStatus.billing.totalScheduledJobs === 0 &&
+              "No billing schedules active",
           ].filter(Boolean),
         },
       },
@@ -387,36 +293,6 @@ router.get("/system-status", async (req: Request, res: Response) => {
       success: false,
       error:
         error instanceof Error ? error.message : "Failed to get system status",
-    });
-  }
-});
-
-/**
- * POST /dashboard/system-status/test - Test system connections
- */
-router.post("/system-status/test", async (req: Request, res: Response) => {
-  try {
-    const [qboTest, genesysTest, schedulerTest] = await Promise.all([
-      getQBOService().testConnection(),
-      getGenesysService().testConnection(),
-      getJobScheduler().testBillingScheduler(),
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        qbo: qboTest,
-        genesys: genesysTest,
-        scheduler: schedulerTest,
-        overall: qboTest && genesysTest && schedulerTest,
-      },
-    });
-  } catch (error) {
-    logger.error("Failed to test system connections", { error });
-    res.status(500).json({
-      success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to test connections",
     });
   }
 });

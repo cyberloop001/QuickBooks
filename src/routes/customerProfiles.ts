@@ -187,27 +187,31 @@ router.get(
 router.post(
   "/",
   [
-    body("name")
+    body("qboDisplayName")
       .isString()
       .trim()
       .notEmpty()
-      .withMessage("Customer name is required"),
+      .withMessage("QBO Display Name is required"),
     body("genesysQueueNames")
-      .isArray({ min: 1 })
-      .withMessage("At least one Genesys queue name is required"),
-    body("genesysQueueNames.*")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("Queue names cannot be empty"),
+      .custom((value) => {
+        // Handle both string and array inputs
+        if (typeof value === "string") {
+          // Convert single string to array
+          return [value.trim()];
+        }
+        if (Array.isArray(value)) {
+          // Validate array
+          if (value.length === 0) {
+            throw new Error("At least one Genesys queue name is required");
+          }
+          return value.map((item) =>
+            typeof item === "string" ? item.trim() : item
+          );
+        }
+        throw new Error("Genesys queue names must be a string or array");
+      })
+      .withMessage("Genesys queue names must be a string or array"),
     body("qboCustomerId").optional().isString().trim(),
-    body("email").optional().isEmail().withMessage("Invalid email format"),
-    body("phone").optional().isString().trim(),
-    body("address").optional().isString().trim(),
-    body("city").optional().isString().trim(),
-    body("state").optional().isString().trim(),
-    body("zipCode").optional().isString().trim(),
-    body("country").optional().isString().trim(),
     body("ratePerMinute")
       .optional()
       .isFloat({ min: 0 })
@@ -215,14 +219,32 @@ router.post(
     body("taxCode").optional().isString().trim(),
     body("notes").optional().isString().trim(),
     body("isActive").optional().isBoolean(),
+
+    // QBO Customer Fields
     body("qboCompanyName").optional().isString().trim(),
-    body("qboDisplayName").optional().isString().trim(),
-    body("qboPrimaryEmailAddr").optional().isString().trim(),
+    body("qboGivenName").optional().isString().trim(),
+    body("qboFamilyName").optional().isString().trim(),
+    body("qboMiddleName").optional().isString().trim(),
+    body("qboTitle").optional().isString().trim(),
+    body("qboSuffix").optional().isString().trim(),
+
+    // QBO Contact Fields
+    body("qboPrimaryEmailAddr")
+      .optional()
+      .if(body("qboPrimaryEmailAddr").exists())
+      .isEmail()
+      .withMessage("Invalid email format"),
     body("qboPrimaryPhone").optional().isString().trim(),
-    body("qboBillAddr").optional().isString().trim(),
-    body("qboShipAddr").optional().isString().trim(),
+
+    // QBO Address Fields
+    body("qboLine1").optional().isString().trim(),
+    body("qboCity").optional().isString().trim(),
+    body("qboCountrySubDivisionCode").optional().isString().trim(),
+    body("qboPostalCode").optional().isString().trim(),
+    body("qboCountry").optional().isString().trim(),
   ],
   async (req: Request, res: Response) => {
+    console.log("req.body", req.body);
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -233,6 +255,12 @@ router.post(
       }
 
       const profileData: CreateCustomerProfileData = req.body;
+
+      // Convert empty qboCustomerId to undefined to avoid database constraint issues
+      if (profileData.qboCustomerId === "") {
+        profileData.qboCustomerId = undefined;
+      }
+
       const profile = await getCustomerProfileService().createCustomerProfile(
         profileData
       );
@@ -273,30 +301,33 @@ router.put(
   "/:id",
   [
     param("id").isUUID(),
-    body("name")
+    body("qboDisplayName")
       .optional()
       .isString()
       .trim()
       .notEmpty()
-      .withMessage("Customer name cannot be empty"),
+      .withMessage("QBO Display Name cannot be empty"),
     body("genesysQueueNames")
       .optional()
-      .isArray({ min: 1 })
-      .withMessage("At least one Genesys queue name is required"),
-    body("genesysQueueNames.*")
-      .optional()
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("Queue names cannot be empty"),
+      .custom((value) => {
+        // Handle both string and array inputs
+        if (typeof value === "string") {
+          // Convert single string to array
+          return [value.trim()];
+        }
+        if (Array.isArray(value)) {
+          // Validate array
+          if (value.length === 0) {
+            throw new Error("At least one Genesys queue name is required");
+          }
+          return value.map((item) =>
+            typeof item === "string" ? item.trim() : item
+          );
+        }
+        throw new Error("Genesys queue names must be a string or array");
+      })
+      .withMessage("Genesys queue names must be a string or array"),
     body("qboCustomerId").optional().isString().trim(),
-    body("email").optional().isEmail().withMessage("Invalid email format"),
-    body("phone").optional().isString().trim(),
-    body("address").optional().isString().trim(),
-    body("city").optional().isString().trim(),
-    body("state").optional().isString().trim(),
-    body("zipCode").optional().isString().trim(),
-    body("country").optional().isString().trim(),
     body("ratePerMinute")
       .optional()
       .isFloat({ min: 0 })
@@ -304,12 +335,29 @@ router.put(
     body("taxCode").optional().isString().trim(),
     body("notes").optional().isString().trim(),
     body("isActive").optional().isBoolean(),
+
+    // QBO Customer Fields
     body("qboCompanyName").optional().isString().trim(),
-    body("qboDisplayName").optional().isString().trim(),
-    body("qboPrimaryEmailAddr").optional().isString().trim(),
+    body("qboGivenName").optional().isString().trim(),
+    body("qboFamilyName").optional().isString().trim(),
+    body("qboMiddleName").optional().isString().trim(),
+    body("qboTitle").optional().isString().trim(),
+    body("qboSuffix").optional().isString().trim(),
+
+    // QBO Contact Fields
+    body("qboPrimaryEmailAddr")
+      .optional()
+      .if(body("qboPrimaryEmailAddr").exists())
+      .isEmail()
+      .withMessage("Invalid email format"),
     body("qboPrimaryPhone").optional().isString().trim(),
-    body("qboBillAddr").optional().isString().trim(),
-    body("qboShipAddr").optional().isString().trim(),
+
+    // QBO Address Fields
+    body("qboLine1").optional().isString().trim(),
+    body("qboCity").optional().isString().trim(),
+    body("qboCountrySubDivisionCode").optional().isString().trim(),
+    body("qboPostalCode").optional().isString().trim(),
+    body("qboCountry").optional().isString().trim(),
   ],
   async (req: Request, res: Response) => {
     try {
@@ -323,6 +371,12 @@ router.put(
 
       const { id } = req.params;
       const updateData: UpdateCustomerProfileData = req.body;
+
+      // Convert empty qboCustomerId to undefined to avoid database constraint issues
+      if (updateData.qboCustomerId === "") {
+        updateData.qboCustomerId = undefined;
+      }
+
       const profile = await getCustomerProfileService().updateCustomerProfile(
         id,
         updateData

@@ -295,21 +295,59 @@ router.post("/test-connection", async (req: Request, res: Response) => {
 });
 
 /**
- * GET /qbo/status - Get QBO connection status
+ * GET /qbo/status - Get comprehensive QBO connection status
  */
 router.get("/status", async (req: Request, res: Response) => {
   try {
     const isAuthenticated = qboService.isAuthenticated();
     const tokens = qboService.getTokens();
+    const tokenStatus = qboService.getTokenStatus();
+
+    // Test connection if authenticated
+    let connectionTest: boolean | null = null;
+    let companyInfo: any = null;
+
+    if (isAuthenticated) {
+      try {
+        connectionTest = await qboService.testConnection();
+        if (connectionTest) {
+          try {
+            companyInfo = await qboService.getCompanyInfo();
+          } catch (error) {
+            logger.warn("Failed to get company info for QBO status", { error });
+          }
+        }
+      } catch (error) {
+        logger.warn("Failed to test QBO connection", { error });
+        connectionTest = false;
+      }
+    }
 
     res.json({
       success: true,
       data: {
         authenticated: isAuthenticated,
+        connected: connectionTest,
         hasTokens: !!tokens,
+        tokenStatus,
+        companyInfo: companyInfo
+          ? {
+              companyName: companyInfo.CompanyName,
+              legalName: companyInfo.LegalName,
+              environment: companyInfo.domain,
+              timezone: companyInfo.DefaultTimeZone,
+            }
+          : null,
         environment: process.env.QBO_ENVIRONMENT || "not configured",
         clientId: process.env.QBO_CLIENT_ID ? "configured" : "not configured",
         redirectUri: process.env.QBO_REDIRECT_URI || "not configured",
+        overall: {
+          healthy: isAuthenticated && connectionTest,
+          issues: [
+            !isAuthenticated && "Not authenticated",
+            isAuthenticated && !connectionTest && "Connection failed",
+          ].filter(Boolean),
+        },
       },
     });
   } catch (error) {

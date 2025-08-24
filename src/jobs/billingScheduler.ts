@@ -1,270 +1,254 @@
-import { CronJob } from "cron";
-import moment from "moment-timezone";
-import { BillingService } from "../services/BillingService";
-import { logger, logBillingJob } from "../utils/logger";
-import { config } from "../config";
 import { getRepository, Repository } from "typeorm";
-import { BillingJob, BillingJobStatus } from "../entities/BillingJob";
+import { CronJob } from "cron";
+import { CustomerProfile } from "../entities/CustomerProfile";
+import { BillingService } from "../services/BillingService";
+import { logger } from "../utils/logger";
+import moment from "moment-timezone";
+import { config } from "../config";
 
-export class BillingScheduler {
+export class CustomerBillingScheduler {
   private billingService: BillingService;
-  private monthlyJob: CronJob | null = null;
+  private cronJobs: Map<string, CronJob> = new Map();
   private isRunning: boolean = false;
 
   constructor() {
     this.billingService = new BillingService();
-  }
-
-  private get billingJobRepository(): Repository<BillingJob> {
-    return getRepository(BillingJob);
+    this.initializeScheduler();
   }
 
   /**
-   * Start the billing scheduler
+   * Initialize the billing scheduler for all customers
    */
-  start(): void {
+  public async initializeScheduler() {
     try {
-      // Schedule monthly billing job - runs on the 1st of each month at 2 AM PST
-      this.monthlyJob = new CronJob(
-        "0 2 1 * *", // 2 AM PST on 1st of month
-        () => this.runMonthlyBilling(),
+      logger.info("Initializing customer billing scheduler...");
+
+      // Get all active customer profiles
+      const customerProfileRepo = getRepository(CustomerProfile);
+      const customers = await customerProfileRepo.find({
+        where: { isActive: true },
+        select: ["id", "billDate", "billingPeriodStart", "billingPeriodEnd"],
+      });
+
+      // Schedule billing for each customer
+      for (const customer of customers) {
+        this.scheduleCustomerBilling(customer);
+      }
+
+      logger.info(`Scheduled billing for ${customers.length} customers`);
+    } catch (error) {
+      logger.error("Failed to initialize customer billing scheduler", {
+        error,
+      });
+    }
+  }
+
+  /**
+   * Schedule billing for a specific customer
+   */
+  public scheduleCustomerBilling(customer: CustomerProfile) {
+    try {
+      // Remove existing cron job if it exists
+      if (this.cronJobs.has(customer.id)) {
+        this.cronJobs.get(customer.id)?.stop();
+        this.cronJobs.delete(customer.id);
+      }
+
+      // Create cron expression for the customer's billing date
+      // Run at 2 AM on the billing date
+      const cronExpression = `0 2 ${customer.billDate} * *`;
+
+      const cronJob = new CronJob(
+        cronExpression,
+        () => this.processCustomerBilling(customer),
         null,
         false,
         config.billing.timezone
       );
 
-      this.monthlyJob.start();
+      // Store the cron job
+      this.cronJobs.set(customer.id, cronJob);
 
-      logger.info("Billing scheduler started successfully", {
-        timezone: config.billing.timezone,
-        schedule: "0 2 1 * * (2 AM PST on 1st of month)",
-      });
+      // Start the cron job
+      cronJob.start();
 
-      // Run initial billing if it's the first time
-      this.checkAndRunInitialBilling();
+      logger.info(
+        `Scheduled billing for customer ${customer.id} on day ${customer.billDate} of each month`
+      );
     } catch (error) {
-      logger.error("Failed to start billing scheduler", { error });
-      throw error;
-    }
-  }
-
-  /**
-   * Stop the billing scheduler
-   */
-  stop(): void {
-    if (this.monthlyJob) {
-      this.monthlyJob.stop();
-      this.monthlyJob = null;
-      logger.info("Billing scheduler stopped");
-    }
-  }
-
-  /**
-   * Check if it's time to run initial billing
-   */
-  private async checkAndRunInitialBilling(): Promise<void> {
-    try {
-      const billingJobRepo = this.billingJobRepository;
-      const lastJob = await billingJobRepo.findOne({
-        order: { createdAt: "DESC" },
-      });
-
-      // If no previous jobs, run billing for the previous month
-      if (!lastJob) {
-        logger.info("No previous billing jobs found, running initial billing");
-        const previousMonth = moment().subtract(1, "month");
-        await this.runBillingForPeriod(
-          previousMonth.startOf("month").toDate(),
-          previousMonth.endOf("month").toDate()
-        );
-      }
-    } catch (error) {
-      logger.error("Failed to check initial billing", { error });
-    }
-  }
-
-  /**
-   * Check if billing job already exists for the period
-   */
-  private async checkExistingJob(
-    startDate: Date,
-    endDate: Date
-  ): Promise<boolean> {
-    try {
-      const billingJobRepo = this.billingJobRepository;
-      const existingJob = await billingJobRepo.findOne({
-        where: {
-          startDate,
-          endDate,
-          status: BillingJobStatus.COMPLETED,
-        },
-      });
-
-      return !!existingJob;
-    } catch (error) {
-      logger.error("Failed to check existing billing job", {
+      logger.error(`Failed to schedule billing for customer ${customer.id}`, {
         error,
-        startDate,
-        endDate,
       });
-      return false;
     }
   }
 
   /**
-   * Run monthly billing job
+   * Remove billing schedule for a customer
    */
-  private async runMonthlyBilling(): Promise<void> {
+  public removeCustomerBillingSchedule(customerId: string) {
+    const cronJob = this.cronJobs.get(customerId);
+    if (cronJob) {
+      cronJob.stop();
+      this.cronJobs.delete(customerId);
+      logger.info(`Removed billing schedule for customer ${customerId}`);
+    }
+  }
+
+  /**
+   * Process billing for a specific customer
+   */
+  private async processCustomerBilling(customer: CustomerProfile) {
     if (this.isRunning) {
-      logger.warn("Monthly billing job already running, skipping");
+      logger.warn(
+        `Billing already in progress for customer ${customer.id}, skipping`
+      );
       return;
     }
 
-    this.isRunning = true;
-
     try {
-      logger.info("Starting monthly billing job");
+      this.isRunning = true;
+      logger.info(`Starting billing process for customer ${customer.id}`);
 
-      // Calculate billing period (previous month)
+      // Calculate billing period for the current month
       const now = moment().tz(config.billing.timezone);
-      const previousMonth = now.subtract(1, "month");
+      const currentMonth = now.month() + 1; // moment months are 0-indexed
+      const currentYear = now.year();
 
-      const startDate = previousMonth.startOf("month").toDate();
-      const endDate = previousMonth.endOf("month").toDate();
+      const billingPeriod = customer.getBillingPeriodForMonth(
+        currentYear,
+        currentMonth
+      );
 
-      logBillingJob("monthly_scheduled", "started", {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        timezone: config.billing.timezone,
+      logger.info(
+        `Billing period for customer ${
+          customer.id
+        }: ${billingPeriod.start.toISOString()} to ${billingPeriod.end.toISOString()}`
+      );
+
+      // Run billing job for this customer
+      const result = await this.billingService.runBillingJob(
+        billingPeriod.start,
+        billingPeriod.end,
+        customer.id,
+        false // Not a dry run
+      );
+
+      logger.info(`Billing completed for customer ${customer.id}`, {
+        jobId: result.jobId,
+        totalInvoices: result.totalInvoices,
+        totalAmount: result.totalAmount,
       });
-
-      await this.runBillingForPeriod(startDate, endDate);
-
-      logBillingJob("monthly_scheduled", "completed", {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-      });
-
-      logger.info("Monthly billing job completed successfully");
     } catch (error) {
-      logger.error("Monthly billing job failed", { error });
-      logBillingJob("monthly_scheduled", "failed", {
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-
-      // Send alert on failure
-      await this.sendFailureAlert("Monthly billing job failed", error);
+      logger.error(`Billing failed for customer ${customer.id}`, { error });
     } finally {
       this.isRunning = false;
     }
   }
 
   /**
-   * Run billing for a specific period
+   * Get all scheduled billing jobs
    */
-  async runBillingForPeriod(
-    startDate: Date,
-    endDate: Date,
-    clientId?: string,
-    isDryRun: boolean = false
-  ): Promise<any> {
+  public async getScheduledJobs(): Promise<
+    Array<{
+      customerId: string;
+      customerName: string;
+      billDate: number;
+      billingPeriodStart: number;
+      billingPeriodEnd: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+      nextRun: Date;
+    }>
+  > {
+    const scheduledJobs: Array<{
+      customerId: string;
+      customerName: string;
+      billDate: number;
+      billingPeriodStart: number;
+      billingPeriodEnd: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+      nextRun: Date;
+    }> = [];
+
     try {
-      logBillingJob("manual_run", "started", {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        clientId,
-        isDryRun,
-      });
+      const customerProfileRepo = getRepository(CustomerProfile);
 
-      const result = await this.billingService.runBillingJob(
-        startDate,
-        endDate,
-        clientId,
-        isDryRun
-      );
+      for (const [customerId, cronJob] of this.cronJobs) {
+        // Fetch customer profile to get billing details
+        const customer = await customerProfileRepo.findOne({
+          where: { id: customerId },
+          select: [
+            "id",
+            "qboDisplayName",
+            "qboCompanyName",
+            "billDate",
+            "billingPeriodStart",
+            "billingPeriodEnd",
+            "minimumMinutes",
+            "overageRatePerMinute",
+          ],
+        });
 
-      logBillingJob("manual_run", "completed", {
-        jobId: result.jobId,
-        totalClients: result.totalClients,
-        totalInvoices: result.totalInvoices,
-        totalAmount: result.totalAmount,
-        errors: result.errors,
-      });
+        if (customer) {
+          const nextRun = cronJob.nextDate().toJSDate();
+          const customerName =
+            customer.qboCompanyName || customer.qboDisplayName;
 
-      return result;
+          scheduledJobs.push({
+            customerId: customer.id,
+            customerName,
+            billDate: customer.billDate,
+            billingPeriodStart: customer.billingPeriodStart,
+            billingPeriodEnd: customer.billingPeriodEnd,
+            minimumMinutes: customer.minimumMinutes,
+            overageRatePerMinute: customer.overageRatePerMinute,
+            nextRun,
+          });
+        }
+      }
     } catch (error) {
-      logger.error("Billing job failed", {
+      logger.error("Failed to fetch customer details for scheduled jobs", {
         error,
-        startDate,
-        endDate,
-        clientId,
       });
-      logBillingJob("manual_run", "failed", {
-        error: error instanceof Error ? error.message : "Unknown error",
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        clientId,
-      });
-
-      throw error;
     }
+
+    return scheduledJobs;
   }
 
   /**
    * Get scheduler status
    */
-  getStatus(): {
-    isRunning: boolean;
-    isSchedulerActive: boolean;
-    nextRun: Date | null;
-    lastRun: Date | null;
-  } {
+  public async getStatus() {
     return {
       isRunning: this.isRunning,
-      isSchedulerActive: !!this.monthlyJob,
-      nextRun: this.monthlyJob?.nextDate()?.toJSDate() || null,
-      lastRun: null, // CronJob doesn't track last run
+      totalScheduledJobs: this.cronJobs.size,
+      scheduledJobs: await this.getScheduledJobs(),
+      timezone: config.billing.timezone,
     };
   }
 
   /**
-   * Send failure alert
+   * Stop all cron jobs
    */
-  private async sendFailureAlert(message: string, error: any): Promise<void> {
-    try {
-      // Log the alert
-      logger.error(`ALERT: ${message}`, { error });
-
-      // TODO: Implement email/Slack alerts
-      // For now, just log the alert
-      // await this.sendEmailAlert(message, error);
-      // await this.sendSlackAlert(message, error);
-    } catch (alertError) {
-      logger.error("Failed to send failure alert", {
-        alertError,
-        originalError: error,
-      });
+  public stop() {
+    for (const [customerId, cronJob] of this.cronJobs) {
+      cronJob.stop();
     }
+    this.cronJobs.clear();
+    logger.info("Stopped all customer billing schedules");
   }
 
   /**
-   * Test the scheduler
+   * Refresh schedules for all customers
    */
-  async testScheduler(): Promise<boolean> {
-    try {
-      logger.info("Testing billing scheduler...");
+  public async refreshSchedules() {
+    logger.info("Refreshing customer billing schedules...");
 
-      // Run a test billing job for the last 7 days
-      const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Stop all existing cron jobs
+    this.stop();
 
-      await this.runBillingForPeriod(startDate, endDate, undefined, true);
-
-      logger.info("Billing scheduler test completed successfully");
-      return true;
-    } catch (error) {
-      logger.error("Billing scheduler test failed", { error });
-      return false;
-    }
+    // Reinitialize scheduler
+    await this.initializeScheduler();
   }
 }

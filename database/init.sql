@@ -24,12 +24,19 @@ END $$;
 -- Table: customer_profiles (NEW - replaces clients table)
 CREATE TABLE IF NOT EXISTS customer_profiles (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "qboCustomerId" text UNIQUE,
+  "qboCustomerId" text,
   "genesysQueueNames" text[] NOT NULL DEFAULT '{}',
   "isActive" boolean NOT NULL DEFAULT true,
   "ratePerMinute" numeric(10,2) NOT NULL DEFAULT 1.00,
   "taxCode" text,
   "notes" text,
+  
+  -- Billing Configuration Fields
+  "billDate" integer NOT NULL DEFAULT 1, -- Day of month to bill (1-31)
+  "billingPeriodStart" integer NOT NULL DEFAULT 1, -- Day of month billing period starts (1-31)
+  "billingPeriodEnd" integer NOT NULL DEFAULT 31, -- Day of month billing period ends (1-31)
+  "minimumMinutes" integer NOT NULL DEFAULT 0, -- Minimum minutes included in base rate
+  "overageRatePerMinute" numeric(10,2) NOT NULL DEFAULT 1.00, -- Rate for minutes over minimum
   
   -- QBO Customer Fields (Required for QBO integration)
   "qboDisplayName" text NOT NULL, -- Required field for QBO
@@ -56,6 +63,11 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
   "createdAt" timestamptz NOT NULL DEFAULT now(),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
+
+-- Add unique constraint only for non-null qboCustomerId values
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_profiles_qbo_customer_id_unique 
+ON customer_profiles ("qboCustomerId") 
+WHERE "qboCustomerId" IS NOT NULL;
 
 -- Table: billing_jobs
 CREATE TABLE IF NOT EXISTS billing_jobs (

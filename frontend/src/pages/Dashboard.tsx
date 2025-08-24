@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  Activity,
   CreditCard,
   Users,
   Phone,
@@ -31,6 +30,7 @@ interface DashboardOverview {
   usage: {
     totalMinutes: number;
     totalCalls: number;
+    totalAmount: number;
   };
   system: {
     qbo: any;
@@ -62,7 +62,23 @@ interface BillingJob {
 interface SystemStatus {
   qbo: any;
   genesys: any;
-  scheduler: any;
+  scheduler: {
+    billing: {
+      isRunning: boolean;
+      totalScheduledJobs: number;
+      scheduledJobs: Array<{
+        customerId: string;
+        customerName: string;
+        billDate: number;
+        billingPeriodStart: number;
+        billingPeriodEnd: number;
+        minimumMinutes: number;
+        overageRatePerMinute: number;
+        nextRun: Date;
+      }>;
+      timezone: string;
+    };
+  };
   overall: {
     healthy: boolean;
     issues: string[];
@@ -73,7 +89,7 @@ export function Dashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [billingJobs, setBillingJobs] = useState<BillingJob[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [qboStatus, setQBOStatus] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("overview");
 
   useEffect(() => {
@@ -82,11 +98,14 @@ export function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const [overviewRes, jobsRes, statusRes] = await Promise.all([
-        fetch("/api/v1/dashboard/overview"),
-        fetch("/api/v1/dashboard/billing-jobs?limit=10"),
-        fetch("/api/v1/dashboard/system-status"),
-      ]);
+      const [overviewRes, jobsRes, statusRes, qboStatusRes] = await Promise.all(
+        [
+          fetch("/api/v1/dashboard/overview"),
+          fetch("/api/v1/dashboard/billing-jobs?limit=10"),
+          fetch("/api/v1/dashboard/system-status"),
+          fetch("/api/v1/qbo/status"),
+        ]
+      );
 
       if (overviewRes.ok) {
         const overviewData = await overviewRes.json();
@@ -102,55 +121,14 @@ export function Dashboard() {
         const statusData = await statusRes.json();
         setSystemStatus(statusData.data);
       }
+
+      if (qboStatusRes.ok) {
+        const qboStatusData = await qboStatusRes.json();
+        setQBOStatus(qboStatusData.data);
+      }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
       toast.error("Failed to load dashboard data");
-    }
-  };
-
-  const testSystemConnections = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/v1/dashboard/system-status/test", {
-        method: "POST",
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success("System connections tested successfully");
-        fetchDashboardData(); // Refresh data
-      } else {
-        toast.error("System connection test failed");
-      }
-    } catch (error) {
-      toast.error("Failed to test system connections");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runManualBilling = async () => {
-    const startDate = format(new Date().setDate(1), "yyyy-MM-dd");
-    const endDate = format(new Date(), "yyyy-MM-dd");
-
-    setLoading(true);
-    try {
-      const response = await fetch(
-        `/api/v1/dashboard/billing-jobs/run?startDate=${startDate}&endDate=${endDate}&isDryRun=true`,
-        { method: "POST" }
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success("Manual billing job started successfully");
-        fetchDashboardData(); // Refresh data
-      } else {
-        toast.error("Failed to start manual billing job");
-      }
-    } catch (error) {
-      toast.error("Failed to start manual billing job");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -189,47 +167,10 @@ export function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-gray-600">System overview and monitoring</p>
         </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={testSystemConnections}
-            disabled={loading}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Activity className="h-4 w-4 mr-2" />
-            Test Connections
-          </button>
-          <button
-            onClick={runManualBilling}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Calendar className="h-4 w-4 mr-2" />
-            Run Billing
-          </button>
-        </div>
       </div>
 
       {/* System Health Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow border">
-          <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="text-sm font-medium">System Health</h3>
-            <span
-              className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSystemHealthColor(
-                systemStatus.overall.healthy
-              )}`}
-            >
-              {systemStatus.overall.healthy ? "Healthy" : "Issues"}
-            </span>
-          </div>
-          <div className="pt-4">
-            <div className="text-2xl font-bold">
-              {systemStatus.overall.issues.length}
-            </div>
-            <p className="text-xs text-gray-500">Active issues</p>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-lg shadow border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium">Total Clients</h3>
@@ -266,10 +207,23 @@ export function Dashboard() {
             <p className="text-xs text-gray-500">Minutes this month</p>
           </div>
         </div>
+
+        <div className="bg-white p-6 rounded-lg shadow border">
+          <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <h3 className="text-sm font-medium">Billing Schedules</h3>
+            <Calendar className="h-4 w-4 text-gray-500" />
+          </div>
+          <div className="pt-4">
+            <div className="text-2xl font-bold">
+              {systemStatus.scheduler.billing?.totalScheduledJobs || 0}
+            </div>
+            <p className="text-xs text-gray-500">Active schedules</p>
+          </div>
+        </div>
       </div>
 
       {/* Company Information Quick View */}
-      {systemStatus?.qbo?.authenticated && (
+      {qboStatus?.authenticated && (
         <div className="bg-white p-6 rounded-lg shadow border">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium flex items-center">
@@ -287,13 +241,13 @@ export function Dashboard() {
             <div className="bg-gray-50 p-3 rounded">
               <p className="text-xs font-medium text-gray-600">Company</p>
               <p className="text-sm font-semibold text-gray-900">
-                {systemStatus.qbo.companyName || "QuickBooks Online"}
+                {qboStatus.companyInfo?.companyName || "QuickBooks Online"}
               </p>
             </div>
             <div className="bg-gray-50 p-3 rounded">
               <p className="text-xs font-medium text-gray-600">Environment</p>
               <p className="text-sm font-semibold text-gray-900 capitalize">
-                {systemStatus.qbo.environment || "Production"}
+                {qboStatus.environment || "Production"}
               </p>
             </div>
             <div className="bg-gray-50 p-3 rounded">
@@ -308,19 +262,21 @@ export function Dashboard() {
       <div className="space-y-4">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8">
-            {["overview", "billing", "system", "usage"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
-                  activeTab === tab
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+            {["overview", "billing", "schedules", "system", "usage"].map(
+              (tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${
+                    activeTab === tab
+                      ? "border-blue-500 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  {tab}
+                </button>
+              )
+            )}
           </nav>
         </div>
 
@@ -383,14 +339,6 @@ export function Dashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">
-                      Rate per minute:
-                    </span>
-                    <span className="font-medium">
-                      ${overview.config.ratePerMinute}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-600">Currency:</span>
                     <span className="font-medium">
                       {overview.config.currency}
@@ -401,17 +349,73 @@ export function Dashboard() {
                       Next billing run:
                     </span>
                     <span className="font-medium">
-                      {systemStatus.scheduler.nextRun
+                      {systemStatus.scheduler.billing?.scheduledJobs?.length > 0
                         ? format(
-                            new Date(systemStatus.scheduler.nextRun),
+                            new Date(
+                              systemStatus.scheduler.billing.scheduledJobs[0].nextRun
+                            ),
                             "MMM dd, yyyy HH:mm"
                           )
-                        : "Not scheduled"}
+                        : "No schedules"}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* Customer Billing Schedules */}
+            {systemStatus.scheduler.billing?.scheduledJobs?.length > 0 && (
+              <div className="bg-white p-6 rounded-lg shadow border">
+                <div className="pb-2">
+                  <h3 className="text-lg font-medium flex items-center">
+                    <Users className="h-5 w-5 mr-2" />
+                    Customer Billing Schedules
+                  </h3>
+                </div>
+                <div className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {systemStatus.scheduler.billing.scheduledJobs
+                      .slice(0, 6)
+                      .map((schedule, index) => (
+                        <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-900">
+                              {schedule.customerName}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              Day {schedule.billDate}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            Period: {schedule.billingPeriodStart} -{" "}
+                            {schedule.billingPeriodEnd}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Min: {schedule.minimumMinutes} min
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Next:{" "}
+                            {format(
+                              new Date(schedule.nextRun),
+                              "MMM dd, HH:mm"
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                  {systemStatus.scheduler.billing.scheduledJobs.length > 6 && (
+                    <div className="text-center mt-4">
+                      <span className="text-sm text-gray-500">
+                        +
+                        {systemStatus.scheduler.billing.scheduledJobs.length -
+                          6}{" "}
+                        more schedules
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -466,6 +470,51 @@ export function Dashboard() {
           </div>
         )}
 
+        {activeTab === "schedules" && (
+          <div className="space-y-4">
+            <div className="bg-white p-6 rounded-lg shadow border">
+              <div className="pb-2">
+                <h3 className="text-lg font-medium flex items-center">
+                  <Users className="h-5 w-5 mr-2" />
+                  Customer Billing Schedules
+                </h3>
+              </div>
+              <div className="pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {systemStatus.scheduler.billing?.scheduledJobs?.map(
+                    (schedule, index) => (
+                      <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-900">
+                            {schedule.customerName}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Day {schedule.billDate}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          Period: {schedule.billingPeriodStart} -{" "}
+                          {schedule.billingPeriodEnd}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Min: {schedule.minimumMinutes} min
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Overage: ${schedule.overageRatePerMinute}/min
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Next:{" "}
+                          {format(new Date(schedule.nextRun), "MMM dd, HH:mm")}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "system" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -479,23 +528,40 @@ export function Dashboard() {
                 </div>
                 <div className="pt-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {systemStatus.qbo.isAuthenticated ? (
+                    {qboStatus?.connected ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                     )}
                     <span className="text-sm">
-                      {systemStatus.qbo.isAuthenticated
-                        ? "Connected"
-                        : "Disconnected"}
+                      {qboStatus?.connected ? "Connected" : "Disconnected"}
                     </span>
                   </div>
-                  {systemStatus.qbo.expiresIn && (
+
+                  {qboStatus?.companyInfo && (
+                    <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                      <div className="font-medium">
+                        Company: {qboStatus.companyInfo.companyName}
+                      </div>
+                      <div>
+                        Environment: {qboStatus.companyInfo.environment}
+                      </div>
+                    </div>
+                  )}
+
+                  {qboStatus?.tokenStatus?.expiresIn && (
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-gray-500" />
                       <span className="text-sm text-gray-600">
-                        Expires in {systemStatus.qbo.expiresIn}
+                        Token expires in {qboStatus.tokenStatus.expiresIn}
                       </span>
+                    </div>
+                  )}
+
+                  {qboStatus?.connected === false && (
+                    <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
+                      QBO connection failed - billing integration may be
+                      affected
                     </div>
                   )}
                 </div>
@@ -541,33 +607,48 @@ export function Dashboard() {
               <div className="bg-white p-6 rounded-lg shadow border">
                 <div className="pb-2">
                   <h3 className="text-lg font-medium flex items-center">
-                    <Calendar className="h-5 w-5 mr-2" />
+                    <Calendar className="h-5 w-4 mr-2" />
                     Billing Scheduler
                   </h3>
                 </div>
                 <div className="pt-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {systemStatus.scheduler.isSchedulerActive ? (
+                    {systemStatus.scheduler.billing?.totalScheduledJobs > 0 ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                     )}
                     <span className="text-sm">
-                      {systemStatus.scheduler.isSchedulerActive
+                      {systemStatus.scheduler.billing?.totalScheduledJobs > 0
                         ? "Active"
-                        : "Inactive"}
+                        : "No schedules"}
                     </span>
                   </div>
-                  {systemStatus.scheduler.nextRun && (
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm text-gray-600">
+                      {systemStatus.scheduler.billing?.totalScheduledJobs || 0}{" "}
+                      customer schedules
+                    </span>
+                  </div>
+                  {systemStatus.scheduler.billing?.isRunning && (
                     <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">
-                        Next run{" "}
-                        {format(
-                          new Date(systemStatus.scheduler.nextRun),
-                          "MMM dd, HH:mm"
-                        )}
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span className="text-sm text-blue-600">
+                        Processing billing...
                       </span>
+                    </div>
+                  )}
+                  {systemStatus.scheduler.billing?.scheduledJobs?.length >
+                    0 && (
+                    <div className="text-xs text-gray-500">
+                      Next run:{" "}
+                      {format(
+                        new Date(
+                          systemStatus.scheduler.billing.scheduledJobs[0].nextRun
+                        ),
+                        "MMM dd, HH:mm"
+                      )}
                     </div>
                   )}
                 </div>
@@ -626,11 +707,7 @@ export function Dashboard() {
                   </div>
                   <div className="text-center p-4 bg-purple-50 rounded-lg">
                     <div className="text-3xl font-bold text-purple-600">
-                      $
-                      {(
-                        overview.usage.totalMinutes *
-                        overview.config.ratePerMinute
-                      ).toFixed(2)}
+                      ${overview.usage.totalAmount}
                     </div>
                     <p className="text-sm text-purple-600">Estimated Revenue</p>
                   </div>
