@@ -84,7 +84,7 @@ router.get("/overview", async (req: Request, res: Response) => {
 
     // Get system status
     const genesysStatus = getGenesysService().getStatus();
-    const schedulerStatus = getJobScheduler().getStatus();
+    const schedulerStatus = await getJobScheduler().getStatus();
 
     res.json({
       success: true,

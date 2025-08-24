@@ -67,7 +67,12 @@ interface SystemStatus {
       totalScheduledJobs: number;
       scheduledJobs: Array<{
         customerId: string;
+        customerName: string;
         billDate: number;
+        billingPeriodStart: number;
+        billingPeriodEnd: number;
+        minimumMinutes: number;
+        overageRatePerMinute: number;
         nextRun: Date;
       }>;
       timezone: string;
@@ -164,55 +169,7 @@ export function Dashboard() {
       </div>
 
       {/* System Health Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow border">
-          <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="text-sm font-medium">System Health</h3>
-            <span
-              className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSystemHealthColor(
-                systemStatus.overall.healthy && qboStatus?.connected
-              )}`}
-            >
-              {systemStatus.overall.healthy && qboStatus?.connected
-                ? "Healthy"
-                : "Issues"}
-            </span>
-          </div>
-          <div className="pt-4">
-            <div className="text-2xl font-bold">
-              {systemStatus.overall.issues.length +
-                (qboStatus?.connected === false ? 1 : 0)}
-            </div>
-            <p className="text-xs text-gray-500">Active issues</p>
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            <div className="flex items-center space-x-1">
-              <span>Genesys:</span>
-              {systemStatus.genesys.hasValidToken ? (
-                <CheckCircle className="h-3 w-3 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-3 w-3 text-red-600" />
-              )}
-            </div>
-            <div className="flex items-center space-x-1">
-              <span>Scheduler:</span>
-              {systemStatus.scheduler.billing?.totalScheduledJobs > 0 ? (
-                <CheckCircle className="h-3 w-3 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-3 w-3 text-red-600" />
-              )}
-            </div>
-            <div className="flex items-center space-x-1">
-              <span>QBO:</span>
-              {qboStatus?.connected ? (
-                <CheckCircle className="h-3 w-3 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-3 w-3 text-red-600" />
-              )}
-            </div>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-lg shadow border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium">Total Clients</h3>
@@ -430,13 +387,20 @@ export function Dashboard() {
                         <div key={index} className="bg-gray-50 p-3 rounded-lg">
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium text-gray-900">
-                              Customer {schedule.customerId.slice(0, 8)}...
+                              {schedule.customerName}
                             </span>
                             <span className="text-xs text-gray-500">
                               Day {schedule.billDate}
                             </span>
                           </div>
                           <div className="text-xs text-gray-600 mt-1">
+                            Period: {schedule.billingPeriodStart} -{" "}
+                            {schedule.billingPeriodEnd}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Min: {schedule.minimumMinutes} min
+                          </div>
+                          <div className="text-xs text-gray-600">
                             Next:{" "}
                             {format(
                               new Date(schedule.nextRun),
@@ -529,13 +493,23 @@ export function Dashboard() {
                       <div key={index} className="bg-gray-50 p-3 rounded-lg">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium text-gray-900">
-                            Customer {schedule.customerId.slice(0, 8)}...
+                            {schedule.customerName}
                           </span>
                           <span className="text-xs text-gray-500">
                             Day {schedule.billDate}
                           </span>
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
+                          Period: {schedule.billingPeriodStart} -{" "}
+                          {schedule.billingPeriodEnd}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Min: {schedule.minimumMinutes} min
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Overage: ${schedule.overageRatePerMinute}/min
+                        </div>
+                        <div className="text-xs text-gray-600">
                           Next:{" "}
                           {format(new Date(schedule.nextRun), "MMM dd, HH:mm")}
                         </div>

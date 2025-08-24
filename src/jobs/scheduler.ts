@@ -26,9 +26,9 @@ export class JobScheduler {
   /**
    * Get scheduler status
    */
-  getStatus() {
+  async getStatus() {
     return {
-      billing: this.billingScheduler.getStatus(),
+      billing: await this.billingScheduler.getStatus(),
     };
   }
 

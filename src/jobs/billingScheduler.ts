@@ -148,23 +148,68 @@ export class CustomerBillingScheduler {
   /**
    * Get all scheduled billing jobs
    */
-  public getScheduledJobs(): Array<{
-    customerId: string;
-    billDate: number;
-    nextRun: Date;
-  }> {
+  public async getScheduledJobs(): Promise<
+    Array<{
+      customerId: string;
+      customerName: string;
+      billDate: number;
+      billingPeriodStart: number;
+      billingPeriodEnd: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+      nextRun: Date;
+    }>
+  > {
     const scheduledJobs: Array<{
       customerId: string;
+      customerName: string;
       billDate: number;
+      billingPeriodStart: number;
+      billingPeriodEnd: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
       nextRun: Date;
     }> = [];
 
-    for (const [customerId, cronJob] of this.cronJobs) {
-      const nextRun = cronJob.nextDate().toJSDate();
-      scheduledJobs.push({
-        customerId,
-        billDate: 0, // We'll need to get this from the customer profile
-        nextRun,
+    try {
+      const customerProfileRepo = getRepository(CustomerProfile);
+
+      for (const [customerId, cronJob] of this.cronJobs) {
+        // Fetch customer profile to get billing details
+        const customer = await customerProfileRepo.findOne({
+          where: { id: customerId },
+          select: [
+            "id",
+            "qboDisplayName",
+            "qboCompanyName",
+            "billDate",
+            "billingPeriodStart",
+            "billingPeriodEnd",
+            "minimumMinutes",
+            "overageRatePerMinute",
+          ],
+        });
+
+        if (customer) {
+          const nextRun = cronJob.nextDate().toJSDate();
+          const customerName =
+            customer.qboCompanyName || customer.qboDisplayName;
+
+          scheduledJobs.push({
+            customerId: customer.id,
+            customerName,
+            billDate: customer.billDate,
+            billingPeriodStart: customer.billingPeriodStart,
+            billingPeriodEnd: customer.billingPeriodEnd,
+            minimumMinutes: customer.minimumMinutes,
+            overageRatePerMinute: customer.overageRatePerMinute,
+            nextRun,
+          });
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to fetch customer details for scheduled jobs", {
+        error,
       });
     }
 
@@ -174,11 +219,11 @@ export class CustomerBillingScheduler {
   /**
    * Get scheduler status
    */
-  public getStatus() {
+  public async getStatus() {
     return {
       isRunning: this.isRunning,
       totalScheduledJobs: this.cronJobs.size,
-      scheduledJobs: this.getScheduledJobs(),
+      scheduledJobs: await this.getScheduledJobs(),
       timezone: config.billing.timezone,
     };
   }

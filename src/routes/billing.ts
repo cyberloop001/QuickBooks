@@ -430,7 +430,7 @@ router.get(
  */
 router.get("/status", async (req: Request, res: Response) => {
   try {
-    const schedulerStatus = jobScheduler.getStatus();
+    const schedulerStatus = await jobScheduler.getStatus();
 
     res.json({
       success: true,
