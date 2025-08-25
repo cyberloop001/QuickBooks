@@ -9,6 +9,7 @@ export interface GenesysCallRecord {
   duration: number; // in seconds
   userId?: string;
   queueId?: string;
+  queueName?: string;
   customerId?: string;
   phoneNumber?: string;
   direction: "inbound" | "outbound";
@@ -767,27 +768,235 @@ export class GenesysService {
         },
       };
     } catch (error) {
+      logger.error("Failed to get billing call data from Genesys Cloud", {
+        error,
+        startDate,
+        endDate,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get conversations filtered by queue for queue-based billing
+   */
+  async getQueueBasedBillingData(
+    startDate: Date,
+    endDate: Date,
+    queueNames?: string[]
+  ): Promise<{
+    callRecords: GenesysCallRecord[];
+    aggregations: {
+      byQueue: Record<
+        string,
+        { calls: number; totalDuration: number; totalMinutes: number }
+      >;
+      byWrapUpCode: Record<string, number>;
+      totalCalls: number;
+      totalDuration: number;
+      totalMinutes: number;
+    };
+  }> {
+    if (!this.api) {
+      throw new Error("API client not initialized");
+    }
+
+    try {
+      await this.ensureValidToken();
+
+      const startTime = startDate.toISOString();
+      const endTime = endDate.toISOString();
+
+      // Build the analytics query for queue-based billing
+      const queueBillingQuery: any = {
+        interval: `${startTime}/${endTime}`,
+        paging: {
+          pageSize: 1000,
+          pageNumber: 1,
+        },
+        segmentFilters: [
+          {
+            type: "and",
+            predicates: [
+              {
+                dimension: "queueName",
+                value:
+                  queueNames && queueNames.length > 0
+                    ? queueNames[0]
+                    : "Support Queue",
+              },
+              {
+                type: "or",
+                predicates: [
+                  {
+                    dimension: "mediaType",
+                    value: "voice",
+                  },
+                  {
+                    dimension: "mediaType",
+                    value: "callback",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        aggregations: [
+          {
+            type: "termFrequency",
+            dimension: "queueName",
+            size: 100,
+          },
+          {
+            type: "termFrequency",
+            dimension: "wrapUpCode",
+            size: 100,
+          },
+          {
+            type: "numericRange",
+            dimension: "tSegmentDuration",
+            ranges: [
+              { gt: 0, lte: 30000 }, // 0-30 seconds
+              { gt: 30000, lte: 60000 }, // 30-60 seconds
+              { gt: 60000, lte: 300000 }, // 1-5 minutes
+              { gt: 300000 }, // 5+ minutes
+            ],
+          },
+        ],
+      };
+
+      // Add queue filters if specified
+      if (queueNames && queueNames.length > 0) {
+        if (queueNames.length === 1) {
+          // Single queue - use exact match
+          queueBillingQuery.segmentFilters[0].predicates[0].value =
+            queueNames[0];
+        } else {
+          // Multiple queues - use OR condition
+          queueBillingQuery.segmentFilters[0].predicates[0] = {
+            type: "or",
+            predicates: queueNames.map((queueName) => ({
+              dimension: "queueName",
+              value: queueName,
+            })),
+          };
+        }
+      }
+
+      const response = await this.api.post(
+        `/api/v2/analytics/conversations/details/query`,
+        queueBillingQuery
+      );
+
+      // Handle the actual API response structure
+      const conversations = response.data.conversations || [];
+      const callRecords: GenesysCallRecord[] = conversations.map(
+        (conversation: any) => {
+          // Extract queue info from participants
+          const participants = conversation.participants || [];
+          const agentParticipant = participants.find(
+            (p: any) => p.purpose === "agent"
+          );
+          const userId = agentParticipant?.userId;
+          const queueId = agentParticipant?.queueId;
+          const queueName = agentParticipant?.queueName;
+
+          return {
+            conversationId: conversation.conversationId,
+            startTime: conversation.conversationStart,
+            endTime: conversation.conversationEnd,
+            duration: Math.round(
+              (new Date(conversation.conversationEnd).getTime() -
+                new Date(conversation.conversationStart).getTime()) /
+                1000
+            ),
+            userId,
+            queueId,
+            queueName,
+            direction: conversation.originatingDirection || "inbound",
+            mediaType: "voice",
+            wrapUpCode: conversation.wrapUpCode,
+            recordingId: conversation.recordingId,
+          };
+        }
+      );
+
+      // Process aggregations for queue-based billing
+      const aggregations = response.data.aggregations || [];
+      const byQueue: Record<
+        string,
+        { calls: number; totalDuration: number; totalMinutes: number }
+      > = {};
+      const byWrapUpCode: Record<string, number> = {};
+
+      // Process wrap-up code aggregations
+      const wrapUpAgg = aggregations.find(
+        (agg: any) => agg.dimension === "wrapUpCode"
+      );
+      if (wrapUpAgg && wrapUpAgg.results) {
+        wrapUpAgg.results.forEach((result: any) => {
+          byWrapUpCode[result.value] = result.count;
+        });
+      }
+
+      // Group by queue from the actual call records
+      callRecords.forEach((record) => {
+        const queueName = record.queueName || "Unknown Queue";
+        if (!byQueue[queueName]) {
+          byQueue[queueName] = {
+            calls: 0,
+            totalDuration: 0,
+            totalMinutes: 0,
+          };
+        }
+        byQueue[queueName].calls++;
+        byQueue[queueName].totalDuration += record.duration;
+        byQueue[queueName].totalMinutes += record.duration / 60;
+      });
+
+      // Round minutes to 2 decimal places
+      Object.values(byQueue).forEach((queueData) => {
+        queueData.totalMinutes = Math.round(queueData.totalMinutes * 100) / 100;
+      });
+
+      const totalCalls = callRecords.length;
+      const totalDuration = callRecords.reduce(
+        (sum, record) => sum + record.duration,
+        0
+      );
+      const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
+
+      logger.info(
+        "Retrieved queue-based billing data from Genesys Cloud Analytics API",
+        {
+          count: callRecords.length,
+          totalHits: response.data.totalHits || 0,
+          queuesCount: Object.keys(byQueue).length,
+          startDate,
+          endDate,
+        }
+      );
+
+      return {
+        callRecords,
+        aggregations: {
+          byQueue,
+          byWrapUpCode,
+          totalCalls,
+          totalDuration,
+          totalMinutes,
+        },
+      };
+    } catch (error) {
       logger.error(
-        "Failed to get billing call data from Genesys Cloud Analytics API",
+        "Failed to get queue-based billing data from Genesys Cloud",
         {
           error,
           startDate,
           endDate,
         }
       );
-
-      logGenesysAction("get_billing_call_data", {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-        startDate,
-        endDate,
-      });
-
-      throw new Error(
-        `Failed to get billing call data: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      throw error;
     }
   }
 

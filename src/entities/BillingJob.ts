@@ -54,7 +54,7 @@ export class BillingJob {
   endDate!: Date;
 
   @Column({ type: "int", default: 0 })
-  totalCustomers!: number;
+  totalQueues!: number;
 
   @Column({ type: "int", default: 0 })
   totalInvoices!: number;
@@ -90,7 +90,28 @@ export class BillingJob {
   @OneToMany(() => ClientBillingResult, (result) => result.billingJob)
   clientBillingResults!: ClientBillingResult[];
 
-  @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs)
+  // Keep customer profile for backward compatibility but make it optional
+  @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs, {
+    nullable: true,
+  })
   @JoinColumn({ name: "customerProfileId" })
-  customerProfile!: CustomerProfile;
+  customerProfile?: CustomerProfile;
+
+  // Helper methods
+  getTotalQueues(): number {
+    return this.totalQueues;
+  }
+
+  getTotalInvoices(): number {
+    return this.totalInvoices;
+  }
+
+  getTotalAmount(): number {
+    return this.totalAmount;
+  }
+
+  getSuccessRate(): number {
+    if (this.totalInvoices === 0) return 0;
+    return (this.successfulInvoices / this.totalInvoices) * 100;
+  }
 }

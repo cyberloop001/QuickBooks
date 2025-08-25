@@ -48,7 +48,7 @@ const getPhoneUsageRepository = (): Repository<PhoneUsage> => {
 router.get("/overview", async (req: Request, res: Response) => {
   try {
     const [
-      totalClients,
+      totalQueues,
       totalBillingJobs,
       successfulJobs,
       failedJobs,
@@ -56,7 +56,11 @@ router.get("/overview", async (req: Request, res: Response) => {
       totalRevenue,
       recentUsage,
     ] = await Promise.all([
-      getClientRepository().count(),
+      getPhoneUsageRepository()
+        .createQueryBuilder("usage")
+        .select("COUNT(DISTINCT usage.queueName)", "total")
+        .where("usage.queueName IS NOT NULL")
+        .getRawOne(),
       getBillingJobRepository().count(),
       getBillingJobRepository().count({
         where: { status: BillingJobStatus.COMPLETED },
@@ -90,8 +94,8 @@ router.get("/overview", async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        clients: {
-          total: totalClients,
+        queues: {
+          total: totalQueues?.total || 0,
         },
         billing: {
           totalJobs: totalBillingJobs,
@@ -334,12 +338,13 @@ router.get(
 
       const clientSummary = await getPhoneUsageRepository()
         .createQueryBuilder("usage")
-        .select("usage.clientId", "clientId")
+        .select("usage.queueName", "queueName")
         .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
         .addSelect("COUNT(usage.id)", "totalCalls")
         .addSelect("SUM(usage.amount)", "totalAmount")
         .where("usage.startedAt >= :startDate", { startDate })
-        .groupBy("usage.clientId")
+        .andWhere("usage.queueName IS NOT NULL")
+        .groupBy("usage.queueName")
         .orderBy("totalAmount", "DESC")
         .limit(10)
         .getRawMany();

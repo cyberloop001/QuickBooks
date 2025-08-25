@@ -16,16 +16,16 @@ import { config } from "../config";
 export interface BillingResult {
   success: boolean;
   jobId: string;
-  totalClients: number;
+  totalQueues: number;
   totalInvoices: number;
   totalAmount: number;
   errors: string[];
-  details: ClientBillingResult[];
+  details: QueueBillingResult[];
 }
 
-export interface ClientBillingResult {
-  clientId: string;
-  clientName: string;
+export interface QueueBillingResult {
+  queueId: string;
+  queueName: string;
   totalCalls: number;
   totalMinutes: number;
   totalAmount: number;
@@ -101,15 +101,15 @@ export class BillingService {
         clientId
       );
 
-      // Aggregate usage by client
-      const aggregatedUsage = await this.aggregateUsageByClient(
+      // Aggregate usage by queue
+      const aggregatedUsage = await this.aggregateUsageByQueue(
         phoneUsageData,
         billingPeriodStart,
         billingPeriodEnd
       );
 
       // Create invoices (or simulate for dry run)
-      const billingResults = await this.processClientBilling(
+      const billingResults = await this.processQueueBilling(
         aggregatedUsage,
         billingJob,
         isDryRun
@@ -127,7 +127,7 @@ export class BillingService {
       const result: BillingResult = {
         success: true,
         jobId,
-        totalClients: billingResults.length,
+        totalQueues: billingResults.length,
         totalInvoices: billingResults.filter((r) => r.invoiceCreated).length,
         totalAmount: billingResults.reduce((sum, r) => sum + r.totalAmount, 0),
         errors: billingResults.filter((r) => r.error).map((r) => r.error!),
@@ -168,17 +168,18 @@ export class BillingService {
             "Fetching billing call data from Genesys Cloud Analytics API..."
           );
 
-          // Use the optimized billing method that groups data by client
-          const billingData = await this.genesysService.getBillingCallData(
-            startDate,
-            endDate,
-            clientId ? [clientId] : undefined
-          );
+          // Use the new queue-based billing method
+          const billingData =
+            await this.genesysService.getQueueBasedBillingData(
+              startDate,
+              endDate
+            );
 
           // Convert Genesys data to billing format
           usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
-            customerProfileId: clientId || record.userId || "unknown",
+            queueId: record.queueId || "unknown",
+            queueName: record.queueName || "Unknown Queue",
             started_at: record.startTime,
             ended_at: record.endTime,
             billable_seconds: record.duration,
@@ -188,16 +189,16 @@ export class BillingService {
             wrap_up_code: record.wrapUpCode,
             recording_id: record.recordingId,
             user_id: record.userId,
-            queue_id: record.queueId,
+            media_type: record.mediaType,
+            direction: record.direction,
           }));
 
           logger.info(
-            "Successfully fetched billing data from Genesys Cloud Analytics API",
+            "Successfully fetched queue-based billing data from Genesys Cloud Analytics API",
             {
               count: usageData.length,
               totalHits: billingData.aggregations.totalCalls,
-              clientsCount: Object.keys(billingData.aggregations.byClient)
-                .length,
+              queuesCount: Object.keys(billingData.aggregations.byQueue).length,
               totalMinutes: billingData.aggregations.totalMinutes,
               startDate,
               endDate,
@@ -229,13 +230,17 @@ export class BillingService {
 
           usageData = phoneUsageData.map((usage) => ({
             call_id: usage.callId,
-            customerProfileId: usage.customerProfileId,
+            queueId: usage.queueId || usage.genesysQueueName || "unknown",
+            queueName:
+              usage.queueName || usage.genesysQueueName || "Unknown Queue",
             started_at: usage.startedAt,
             ended_at: usage.endedAt,
             billable_seconds: usage.billableSeconds,
             started_pst: usage.startedPst,
             ended_pst: usage.endedPst,
             source: "phone_system",
+            media_type: usage.mediaType || "voice",
+            direction: usage.direction || "inbound",
           }));
 
           logger.info("Successfully fetched phone usage data", {
@@ -396,14 +401,63 @@ export class BillingService {
   }
 
   /**
+   * Aggregate usage data by queue
+   */
+  private async aggregateUsageByQueue(
+    usageData: any[],
+    startDate: Date,
+    endDate: Date
+  ): Promise<Map<string, any>> {
+    const aggregatedUsage = new Map<string, any>();
+
+    for (const usage of usageData) {
+      const queueId = usage.queueId || "unknown";
+      const queueName = usage.queueName || "Unknown Queue";
+
+      if (!aggregatedUsage.has(queueId)) {
+        // Initialize queue usage data
+        aggregatedUsage.set(queueId, {
+          queueId,
+          queueName,
+          totalCalls: 0,
+          totalSeconds: 0,
+          totalMinutes: 0,
+          totalAmount: 0,
+          calls: [],
+        });
+      }
+
+      const queueUsage = aggregatedUsage.get(queueId);
+      queueUsage.totalCalls++;
+      queueUsage.totalSeconds += usage.billable_seconds;
+      queueUsage.totalMinutes += usage.billable_seconds / 60;
+
+      // Calculate amount based on default rate (can be configured per queue later)
+      const minutes = usage.billable_seconds / 60;
+      const defaultRatePerMinute = 1.0; // Default rate, can be made configurable
+      queueUsage.totalAmount += minutes * defaultRatePerMinute;
+
+      queueUsage.calls.push(usage);
+    }
+
+    // Round totals to 2 decimal places
+    for (const [queueId, usage] of aggregatedUsage) {
+      usage.totalMinutes = Math.round(usage.totalMinutes * 100) / 100;
+      usage.totalAmount = Math.round(usage.totalAmount * 100) / 100;
+    }
+
+    return aggregatedUsage;
+  }
+
+  /**
    * Process billing for each client
    */
   private async processClientBilling(
     aggregatedUsage: Map<string, any>,
     billingJob: BillingJob,
     isDryRun: boolean
-  ): Promise<ClientBillingResult[]> {
-    const results: ClientBillingResult[] = [];
+  ): Promise<QueueBillingResult[]> {
+    const results: QueueBillingResult[] = [];
 
     for (const [clientId, usage] of aggregatedUsage) {
       try {
@@ -420,8 +474,8 @@ export class BillingService {
         });
 
         results.push({
-          clientId,
-          clientName: usage.client.name || clientId,
+          queueId: clientId,
+          queueName: usage.client.name || clientId,
           totalCalls: usage.totalCalls,
           totalMinutes: usage.totalMinutes,
           totalAmount: usage.totalAmount,
@@ -441,7 +495,7 @@ export class BillingService {
     usage: any,
     billingJob: BillingJob,
     isDryRun: boolean
-  ): Promise<ClientBillingResult> {
+  ): Promise<QueueBillingResult> {
     try {
       const clientRepo = this.customerProfileRepository;
       const client = await clientRepo.findOne({
@@ -450,8 +504,8 @@ export class BillingService {
 
       if (!client) {
         return {
-          clientId: usage.customerProfileId,
-          clientName: "Unknown Customer",
+          queueId: usage.customerProfileId,
+          queueName: "Unknown Customer",
           totalCalls: 0,
           totalMinutes: 0,
           totalAmount: 0,
@@ -495,8 +549,8 @@ export class BillingService {
           });
 
           return {
-            clientId: client.id,
-            clientName: client.qboDisplayName,
+            queueId: client.id,
+            queueName: client.qboDisplayName,
             totalCalls: 1,
             totalMinutes,
             totalAmount,
@@ -510,8 +564,8 @@ export class BillingService {
       }
 
       return {
-        clientId: client.id,
-        clientName: client.qboDisplayName,
+        queueId: client.id,
+        queueName: client.qboDisplayName,
         totalCalls: 1,
         totalMinutes,
         totalAmount,
@@ -521,6 +575,144 @@ export class BillingService {
     } catch (error) {
       logger.error("Failed to process client billing", { error, usage });
       throw error;
+    }
+  }
+
+  /**
+   * Process billing for each queue
+   */
+  private async processQueueBilling(
+    aggregatedUsage: Map<string, any>,
+    billingJob: BillingJob,
+    isDryRun: boolean
+  ): Promise<QueueBillingResult[]> {
+    const results: QueueBillingResult[] = [];
+
+    for (const [queueId, usage] of aggregatedUsage) {
+      try {
+        logger.info(`Processing billing for queue: ${usage.queueName}`, {
+          queueId,
+          queueName: usage.queueName,
+          totalCalls: usage.totalCalls,
+          totalMinutes: usage.totalMinutes,
+        });
+
+        const result = await this.processQueueBillingItem(
+          usage,
+          billingJob,
+          isDryRun
+        );
+
+        results.push(result);
+      } catch (error) {
+        logger.error(
+          `Failed to process billing for queue: ${usage.queueName}`,
+          {
+            error,
+            queueId,
+            queueName: usage.queueName,
+          }
+        );
+
+        results.push({
+          queueId,
+          queueName: usage.queueName,
+          totalCalls: usage.totalCalls,
+          totalMinutes: usage.totalMinutes,
+          totalAmount: usage.totalAmount,
+          invoiceCreated: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Process billing for a single queue
+   */
+  private async processQueueBillingItem(
+    usage: any,
+    billingJob: BillingJob,
+    isDryRun: boolean
+  ): Promise<QueueBillingResult> {
+    try {
+      const { queueId, queueName, totalCalls, totalMinutes, totalAmount } =
+        usage;
+
+      if (isDryRun) {
+        logger.info(`DRY RUN: Would create invoice for queue: ${queueName}`, {
+          queueId,
+          queueName,
+          totalCalls,
+          totalMinutes,
+          totalAmount,
+        });
+
+        return {
+          queueId,
+          queueName,
+          totalCalls,
+          totalMinutes,
+          totalAmount,
+          invoiceCreated: false,
+        };
+      }
+
+      // Create invoice in QBO
+      const invoiceResult = await this.qboService.createInvoice({
+        customerId: queueId, // Use queue ID as customer ID for now
+        customerName: queueName,
+        description: `Phone usage for ${queueName} - ${
+          billingJob.startDate.toISOString().split("T")[0]
+        } to ${billingJob.endDate.toISOString().split("T")[0]}`,
+        amount: totalAmount,
+        metadata: {
+          queueId,
+          queueName,
+          totalCalls,
+          totalMinutes,
+          billingJobId: billingJob.id,
+          period: {
+            start: billingJob.startDate,
+            end: billingJob.endDate,
+          },
+        },
+      });
+
+      logger.info(`Successfully created invoice for queue: ${queueName}`, {
+        queueId,
+        queueName,
+        invoiceId: invoiceResult.Id,
+        totalAmount,
+      });
+
+      return {
+        queueId,
+        queueName,
+        totalCalls,
+        totalMinutes,
+        totalAmount,
+        invoiceCreated: true,
+        invoiceId: invoiceResult.Id,
+      };
+    } catch (error) {
+      logger.error(`Failed to create invoice for queue: ${usage.queueName}`, {
+        error,
+        queueId: usage.queueId,
+        queueName: usage.queueName,
+      });
+
+      return {
+        queueId: usage.queueId,
+        queueName: usage.queueName,
+        totalCalls: usage.totalCalls,
+        totalMinutes: usage.totalMinutes,
+        totalAmount: usage.totalAmount,
+        invoiceCreated: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   }
 
@@ -681,22 +873,17 @@ export class BillingService {
    */
   private async updateBillingJobResults(
     jobId: string,
-    results: ClientBillingResult[]
+    results: QueueBillingResult[]
   ): Promise<void> {
     const billingJobRepo = getRepository(BillingJob);
 
-    const totalCalls = results.reduce((sum, r) => sum + r.totalCalls, 0);
-    const totalMinutes = results.reduce((sum, r) => sum + r.totalMinutes, 0);
-    const totalAmount = results.reduce((sum, r) => sum + r.totalAmount, 0);
-    const invoicesCreated = results.filter((r) => r.invoiceCreated).length;
-    const invoicesFailed = results.filter((r) => r.error).length;
-
     await billingJobRepo.update(jobId, {
-      totalCustomers: results.length,
-      totalInvoices: invoicesCreated,
-      totalAmount,
-      successfulInvoices: invoicesCreated,
-      failedInvoices: invoicesFailed,
+      totalQueues: results.length,
+      totalInvoices: results.filter((r) => r.invoiceCreated).length,
+      totalAmount: results.reduce((sum, r) => sum + r.totalAmount, 0),
+      successfulInvoices: results.filter((r) => r.invoiceCreated).length,
+      failedInvoices: results.filter((r) => r.error).length,
+      completedAt: new Date(),
     });
   }
 

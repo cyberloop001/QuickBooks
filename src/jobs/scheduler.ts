@@ -1,11 +1,11 @@
-import { CustomerBillingScheduler } from "./billingScheduler";
+import { QueueBillingScheduler } from "./billingScheduler";
 import { logger } from "../utils/logger";
 
 export class JobScheduler {
-  private billingScheduler: CustomerBillingScheduler;
+  private billingScheduler: QueueBillingScheduler;
 
   constructor() {
-    this.billingScheduler = new CustomerBillingScheduler();
+    this.billingScheduler = new QueueBillingScheduler();
   }
 
   /**

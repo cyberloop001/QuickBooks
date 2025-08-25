@@ -58,6 +58,25 @@ export class PhoneUsage {
   @Column({ type: "timestamp with time zone", nullable: true })
   billedAt!: Date;
 
+  // New fields for queue-based billing
+  @Column({ nullable: true })
+  queueId!: string;
+
+  @Column({ nullable: true })
+  queueName!: string;
+
+  @Column({ nullable: true })
+  mediaType!: string;
+
+  @Column({ nullable: true })
+  direction!: string;
+
+  @Column({ nullable: true })
+  wrapUpCode!: string;
+
+  @Column({ nullable: true })
+  recordingId!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 
@@ -92,6 +111,16 @@ export class PhoneUsage {
 
   // Get the queue name (either from this record or from the profile)
   getQueueName(): string {
-    return this.genesysQueueName || "Unknown Queue";
+    return this.queueName || this.genesysQueueName || "Unknown Queue";
+  }
+
+  // Get the queue ID
+  getQueueId(): string {
+    return this.queueId || "unknown";
+  }
+
+  // Check if this is a voice call
+  isVoiceCall(): boolean {
+    return this.mediaType === "voice" || this.mediaType === "callback";
   }
 }

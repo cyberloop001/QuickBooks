@@ -6,7 +6,7 @@ import { logger } from "../utils/logger";
 import moment from "moment-timezone";
 import { config } from "../config";
 
-export class CustomerBillingScheduler {
+export class QueueBillingScheduler {
   private billingService: BillingService;
   private cronJobs: Map<string, CronJob> = new Map();
   private isRunning: boolean = false;
@@ -17,11 +17,11 @@ export class CustomerBillingScheduler {
   }
 
   /**
-   * Initialize the billing scheduler for all customers
+   * Initialize the billing scheduler for queue-based billing
    */
   public async initializeScheduler() {
     try {
-      logger.info("Initializing customer billing scheduler...");
+      logger.info("Initializing queue-based billing scheduler...");
 
       // Get all active customer profiles
       const customerProfileRepo = getRepository(CustomerProfile);
@@ -32,21 +32,21 @@ export class CustomerBillingScheduler {
 
       // Schedule billing for each customer
       for (const customer of customers) {
-        this.scheduleCustomerBilling(customer);
+        this.scheduleMonthlyBilling(customer);
       }
 
       logger.info(`Scheduled billing for ${customers.length} customers`);
     } catch (error) {
-      logger.error("Failed to initialize customer billing scheduler", {
+      logger.error("Failed to initialize queue-based billing scheduler", {
         error,
       });
     }
   }
 
   /**
-   * Schedule billing for a specific customer
+   * Schedule monthly billing for all queues
    */
-  public scheduleCustomerBilling(customer: CustomerProfile) {
+  public scheduleMonthlyBilling(customer: CustomerProfile) {
     try {
       // Remove existing cron job if it exists
       if (this.cronJobs.has(customer.id)) {
@@ -60,7 +60,7 @@ export class CustomerBillingScheduler {
 
       const cronJob = new CronJob(
         cronExpression,
-        () => this.processCustomerBilling(customer),
+        () => this.processMonthlyBilling(customer),
         null,
         false,
         config.billing.timezone
@@ -76,28 +76,14 @@ export class CustomerBillingScheduler {
         `Scheduled billing for customer ${customer.id} on day ${customer.billDate} of each month`
       );
     } catch (error) {
-      logger.error(`Failed to schedule billing for customer ${customer.id}`, {
-        error,
-      });
+      logger.error("Failed to schedule monthly billing", { error });
     }
   }
 
   /**
-   * Remove billing schedule for a customer
+   * Process monthly billing for all queues
    */
-  public removeCustomerBillingSchedule(customerId: string) {
-    const cronJob = this.cronJobs.get(customerId);
-    if (cronJob) {
-      cronJob.stop();
-      this.cronJobs.delete(customerId);
-      logger.info(`Removed billing schedule for customer ${customerId}`);
-    }
-  }
-
-  /**
-   * Process billing for a specific customer
-   */
-  private async processCustomerBilling(customer: CustomerProfile) {
+  private async processMonthlyBilling(customer: CustomerProfile) {
     if (this.isRunning) {
       logger.warn(
         `Billing already in progress for customer ${customer.id}, skipping`
@@ -133,13 +119,14 @@ export class CustomerBillingScheduler {
         false // Not a dry run
       );
 
-      logger.info(`Billing completed for customer ${customer.id}`, {
+      logger.info("Monthly billing completed for all queues", {
         jobId: result.jobId,
+        totalQueues: result.totalQueues,
         totalInvoices: result.totalInvoices,
         totalAmount: result.totalAmount,
       });
     } catch (error) {
-      logger.error(`Billing failed for customer ${customer.id}`, { error });
+      logger.error("Monthly billing failed", { error });
     } finally {
       this.isRunning = false;
     }
@@ -232,23 +219,59 @@ export class CustomerBillingScheduler {
    * Stop all cron jobs
    */
   public stop() {
-    for (const [customerId, cronJob] of this.cronJobs) {
+    for (const [jobType, cronJob] of this.cronJobs) {
       cronJob.stop();
     }
     this.cronJobs.clear();
-    logger.info("Stopped all customer billing schedules");
+    logger.info("Stopped all queue-based billing schedules");
   }
 
   /**
-   * Refresh schedules for all customers
+   * Refresh schedules
    */
   public async refreshSchedules() {
-    logger.info("Refreshing customer billing schedules...");
+    logger.info("Refreshing queue-based billing schedules...");
 
     // Stop all existing cron jobs
     this.stop();
 
     // Reinitialize scheduler
     await this.initializeScheduler();
+  }
+
+  /**
+   * Run billing manually for a specific period
+   */
+  public async runManualBilling(
+    startDate: Date,
+    endDate: Date,
+    isDryRun: boolean = false
+  ) {
+    try {
+      logger.info("Running manual billing job", {
+        startDate,
+        endDate,
+        isDryRun,
+      });
+
+      const result = await this.billingService.runBillingJob(
+        startDate,
+        endDate,
+        undefined, // No specific client ID for queue-based billing
+        isDryRun
+      );
+
+      logger.info("Manual billing job completed", {
+        jobId: result.jobId,
+        totalQueues: result.totalQueues,
+        totalInvoices: result.totalInvoices,
+        totalAmount: result.totalAmount,
+      });
+
+      return result;
+    } catch (error) {
+      logger.error("Manual billing job failed", { error });
+      throw error;
+    }
   }
 }

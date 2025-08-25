@@ -26,8 +26,15 @@ export class ClientBillingResult {
   @Column()
   billingJobId!: string;
 
-  @Column()
+  @Column({ nullable: true })
   customerProfileId!: string;
+
+  // New fields for queue-based billing
+  @Column({ nullable: true })
+  queueId!: string;
+
+  @Column({ nullable: true })
+  queueName!: string;
 
   @Column({
     type: "enum",
@@ -71,7 +78,37 @@ export class ClientBillingResult {
   @JoinColumn({ name: "billingJobId" })
   billingJob!: BillingJob;
 
-  @ManyToOne(() => CustomerProfile)
+  // Make customer profile optional for queue-based billing
+  @ManyToOne(() => CustomerProfile, { nullable: true })
   @JoinColumn({ name: "customerProfileId" })
-  customerProfile!: CustomerProfile;
+  customerProfile?: CustomerProfile;
+
+  // Helper methods
+  getQueueName(): string {
+    return this.queueName || "Unknown Queue";
+  }
+
+  getQueueId(): string {
+    return this.queueId || "unknown";
+  }
+
+  getTotalCalls(): number {
+    return this.totalCalls;
+  }
+
+  getTotalMinutes(): number {
+    return this.totalMinutes;
+  }
+
+  getTotalAmount(): number {
+    return this.totalAmount;
+  }
+
+  isCompleted(): boolean {
+    return this.status === ClientBillingStatus.COMPLETED;
+  }
+
+  hasError(): boolean {
+    return this.status === ClientBillingStatus.FAILED;
+  }
 }
