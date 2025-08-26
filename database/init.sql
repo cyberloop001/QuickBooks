@@ -96,12 +96,9 @@ CREATE TABLE IF NOT EXISTS phone_usage (
   "callId" text NOT NULL,
   "customerProfileId" uuid NOT NULL,
   "genesysQueueName" text,
-  "genesysUserId" text,
   "startedAt" timestamptz NOT NULL,
   "endedAt" timestamptz NOT NULL,
   "billableSeconds" integer NOT NULL,
-  "startedPst" timestamptz NOT NULL,
-  "endedPst" timestamptz NOT NULL,
   "billableMinutes" numeric(10,2) NOT NULL,
   "amount" numeric(10,2) NOT NULL,
   "isBilled" boolean NOT NULL DEFAULT false,
@@ -114,13 +111,12 @@ CREATE TABLE IF NOT EXISTS phone_usage (
 );
 
 -- Helpful indexes
-CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_started_pst ON phone_usage ("customerProfileId", "startedPst");
+CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_started ON phone_usage ("customerProfileId", "startedAt");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_billing_job ON phone_usage ("billingJobId");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_call_id ON phone_usage ("callId");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_id ON phone_usage ("customerProfileId");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_is_billed ON phone_usage ("isBilled");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_queue_name ON phone_usage ("genesysQueueName");
-CREATE INDEX IF NOT EXISTS idx_phone_usage_user_id ON phone_usage ("genesysUserId");
 
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_job_id ON billing_jobs ("jobId");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_status ON billing_jobs ("status");

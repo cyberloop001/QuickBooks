@@ -118,6 +118,9 @@ export class BillingService {
         queueName
       );
 
+      // Store phone usage data before processing billing
+      await this.storePhoneUsageData(phoneUsageData);
+
       // Aggregate usage by queue
       const aggregatedUsage = await this.aggregateUsageByQueue(
         phoneUsageData,
@@ -236,15 +239,17 @@ export class BillingService {
 
           if (queueName) {
             // Filter by queue name
-            usageQuery.andWhere("usage.queueName = :queueName", { queueName });
+            usageQuery.andWhere("usage.genesysQueueName = :queueName", {
+              queueName,
+            });
           }
 
           const phoneUsageData = await usageQuery.getMany();
 
           usageData = phoneUsageData.map((usage) => ({
             call_id: usage.callId,
-            queueId: usage.queueId || "unknown",
-            queueName: usage.queueName || "Unknown Queue",
+            queueId: "unknown", // Use default since queueId doesn't exist in entity
+            queueName: usage.genesysQueueName || "Unknown Queue",
             started_at: usage.startedAt,
             ended_at: usage.endedAt,
             billable_seconds: usage.billableSeconds,
@@ -280,8 +285,8 @@ export class BillingService {
    * Store phone usage data in database
    */
   private async storePhoneUsageData(usageData: any[]): Promise<void> {
-    const phoneUsageRepo = getRepository(PhoneUsage);
-    const customerProfileRepo = getRepository(CustomerProfile);
+    const phoneUsageRepo = this.phoneUsageRepository;
+    const customerProfileRepo = this.customerProfileRepository;
 
     for (const usage of usageData) {
       // Check if usage already exists
@@ -291,20 +296,27 @@ export class BillingService {
 
       if (!existingUsage) {
         // Get customer profile for billing calculation
-        const customerProfile = await customerProfileRepo.findOne({
-          where: { id: usage.customerProfileId },
-          select: ["minimumMinutes", "overageRatePerMinute", "ratePerMinute"],
-        });
+        const customerProfile = await customerProfileRepo
+          .createQueryBuilder("profile")
+          .where(":queueName = ANY(profile.genesysQueueNames)")
+          .setParameter("queueName", usage.queueName)
+          .getOne();
+
+        if (!customerProfile) {
+          logger.warn(
+            `No customer profile found for queue: ${usage.queueName}, skipping usage record`
+          );
+          continue;
+        }
 
         const phoneUsage = new PhoneUsage();
         phoneUsage.callId = usage.call_id;
-        phoneUsage.customerProfileId = usage.customerProfileId;
+        phoneUsage.customerProfileId = customerProfile.id;
         phoneUsage.startedAt = new Date(usage.started_at);
         phoneUsage.endedAt = new Date(usage.ended_at);
         phoneUsage.billableSeconds = usage.billable_seconds;
-        phoneUsage.startedPst = new Date(usage.started_pst);
-        phoneUsage.endedPst = new Date(usage.ended_pst);
         phoneUsage.billableMinutes = usage.billable_seconds / 60;
+        phoneUsage.genesysQueueName = usage.queueName || "Unknown Queue";
 
         // Calculate amount based on customer profile billing settings
         if (customerProfile) {
@@ -1044,7 +1056,7 @@ export class BillingService {
       const result = await this.runBillingJob(
         originalJob.startDate,
         originalJob.endDate,
-        "Support Queue", // No specific client for retry
+        originalJob.queueName, // No specific client for retry
         false // Not a dry run
       );
 
