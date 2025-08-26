@@ -12,6 +12,7 @@ import { QBOService } from "./QBOService";
 import { GenesysService } from "./GenesysService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
+import * as fs from "fs";
 
 export interface BillingResult {
   success: boolean;
@@ -61,11 +62,11 @@ export class BillingService {
   async runBillingJob(
     billingPeriodStart: Date,
     billingPeriodEnd: Date,
-    clientId?: string,
+    queueName: string,
     isDryRun: boolean = false
   ): Promise<BillingResult> {
     const jobId = `BILL_${moment(billingPeriodStart).format(
-      "YYYY_MM"
+      "YYYY_MM_DD"
     )}_${uuidv4().substring(0, 8)}`;
     const jobType = isDryRun ? BillingJobType.DRY_RUN : BillingJobType.MONTHLY;
 
@@ -74,7 +75,7 @@ export class BillingService {
       type: jobType,
       periodStart: billingPeriodStart,
       periodEnd: billingPeriodEnd,
-      clientId,
+      queueName,
       isDryRun,
     });
 
@@ -84,7 +85,7 @@ export class BillingService {
       jobType,
       billingPeriodStart,
       billingPeriodEnd,
-      clientId
+      queueName
     );
 
     try {
@@ -98,14 +99,15 @@ export class BillingService {
       const phoneUsageData = await this.fetchPhoneUsageData(
         billingPeriodStart,
         billingPeriodEnd,
-        clientId
+        queueName
       );
 
       // Aggregate usage by queue
       const aggregatedUsage = await this.aggregateUsageByQueue(
         phoneUsageData,
         billingPeriodStart,
-        billingPeriodEnd
+        billingPeriodEnd,
+        queueName
       );
 
       // Create invoices (or simulate for dry run)
@@ -156,7 +158,7 @@ export class BillingService {
   private async fetchPhoneUsageData(
     startDate: Date,
     endDate: Date,
-    clientId?: string
+    queueName: string
   ): Promise<any[]> {
     try {
       let usageData: any[] = [];
@@ -172,8 +174,14 @@ export class BillingService {
           const billingData =
             await this.genesysService.getQueueBasedBillingData(
               startDate,
-              endDate
+              endDate,
+              queueName // Pass queue name if specified
             );
+
+          fs.writeFileSync(
+            `billingData-${queueName}.json`,
+            JSON.stringify(billingData, null, 2)
+          );
 
           // Convert Genesys data to billing format
           usageData = billingData.callRecords.map((record) => ({
@@ -198,10 +206,10 @@ export class BillingService {
             {
               count: usageData.length,
               totalHits: billingData.aggregations.totalCalls,
-              queuesCount: Object.keys(billingData.aggregations.byQueue).length,
               totalMinutes: billingData.aggregations.totalMinutes,
               startDate,
               endDate,
+              queueName,
             }
           );
         } catch (genesysError) {
@@ -222,8 +230,9 @@ export class BillingService {
             .where("usage.startedAt >= :startDate", { startDate })
             .andWhere("usage.startedAt <= :endDate", { endDate });
 
-          if (clientId) {
-            usageQuery.andWhere("usage.clientId = :clientId", { clientId });
+          if (queueName) {
+            // Filter by queue name
+            usageQuery.andWhere("usage.queueName = :queueName", { queueName });
           }
 
           const phoneUsageData = await usageQuery.getMany();
@@ -247,6 +256,7 @@ export class BillingService {
             count: usageData.length,
             startDate,
             endDate,
+            queueName,
           });
         } catch (phoneError) {
           logger.error("Failed to fetch phone usage data", {
@@ -262,6 +272,7 @@ export class BillingService {
         error,
         startDate,
         endDate,
+        queueName,
       });
       throw error;
     }
@@ -406,13 +417,19 @@ export class BillingService {
   private async aggregateUsageByQueue(
     usageData: any[],
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    specificQueueName?: string
   ): Promise<Map<string, any>> {
     const aggregatedUsage = new Map<string, any>();
 
     for (const usage of usageData) {
       const queueId = usage.queueId || "unknown";
       const queueName = usage.queueName || "Unknown Queue";
+
+      // If we're filtering by a specific queue, skip others
+      if (specificQueueName && queueName !== specificQueueName) {
+        continue;
+      }
 
       if (!aggregatedUsage.has(queueId)) {
         // Initialize queue usage data
@@ -822,24 +839,59 @@ export class BillingService {
   }
 
   /**
-   * Create billing job record
+   * Create a new billing job record
    */
   private async createBillingJob(
     jobId: string,
     type: BillingJobType,
     startDate: Date,
     endDate: Date,
-    clientId?: string
+    queueName?: string
   ): Promise<BillingJob> {
     const billingJobRepo = getRepository(BillingJob);
-
     const billingJob = new BillingJob();
+
     billingJob.jobId = jobId;
     billingJob.type = type;
-    billingJob.status = BillingJobStatus.PENDING;
     billingJob.startDate = startDate;
     billingJob.endDate = endDate;
     billingJob.startedAt = new Date();
+
+    if (queueName) {
+      // Save queue information
+      billingJob.queueName = queueName;
+
+      // Get queue ID from Genesys Cloud
+      try {
+        const genesysService = new GenesysService();
+        const queueId = await genesysService.getQueueId(queueName);
+        billingJob.queueId = queueId;
+      } catch (error) {
+        logger.warn(`Failed to get queue ID for queue: ${queueName}`, {
+          error,
+        });
+        billingJob.queueId = "unknown";
+      }
+
+      // Find customer profile by searching through their genesysQueueNames array
+      const customerProfile = await this.customerProfileRepository
+        .createQueryBuilder("profile")
+        .where("profile.isActive = :isActive", { isActive: true })
+        .andWhere(":queueName = ANY(profile.genesysQueueNames)")
+        .setParameter("queueName", queueName)
+        .getOne();
+
+      if (customerProfile) {
+        billingJob.customerProfile = customerProfile;
+        logger.info(
+          `Linked billing job to customer profile: ${customerProfile.qboDisplayName}`
+        );
+      } else {
+        logger.warn(
+          `Customer profile not found for queue name: ${queueName}. Billing job will not be linked to a customer profile.`
+        );
+      }
+    }
 
     return await billingJobRepo.save(billingJob);
   }
@@ -998,7 +1050,7 @@ export class BillingService {
       const result = await this.runBillingJob(
         originalJob.startDate,
         originalJob.endDate,
-        undefined, // No specific client for retry
+        "Support Queue", // No specific client for retry
         false // Not a dry run
       );
 

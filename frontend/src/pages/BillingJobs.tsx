@@ -93,7 +93,6 @@ export function BillingJobs() {
           billingPeriodStart: jobRequest.startDate,
           billingPeriodEnd: jobRequest.endDate,
           isDryRun: jobRequest.isDryRun,
-          clientId: jobRequest.clientId || undefined,
         }),
       });
 

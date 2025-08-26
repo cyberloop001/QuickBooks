@@ -1,7 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { logger, logGenesysAction } from "../utils/logger";
 import { config } from "../config";
-
 export interface GenesysCallRecord {
   conversationId: string;
   startTime: string;
@@ -574,224 +573,16 @@ export class GenesysService {
   }
 
   /**
-   * Get aggregated call data for billing purposes
-   */
-  async getBillingCallData(
-    startDate: Date,
-    endDate: Date,
-    clientIds?: string[]
-  ): Promise<{
-    callRecords: GenesysCallRecord[];
-    aggregations: {
-      byClient: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      >;
-      byWrapUpCode: Record<string, number>;
-      totalCalls: number;
-      totalDuration: number;
-      totalMinutes: number;
-    };
-  }> {
-    if (!this.api) {
-      throw new Error("API client not initialized");
-    }
-
-    try {
-      await this.ensureValidToken();
-
-      const startTime = startDate.toISOString();
-      const endTime = endDate.toISOString();
-
-      // Build the analytics query optimized for billing
-      const billingQuery: any = {
-        interval: `${startTime}/${endTime}`,
-        segmentFilters: [
-          {
-            type: "and",
-            predicates: [
-              {
-                dimension: "mediaType",
-                value: "voice",
-              },
-              {
-                dimension: "purpose",
-                value: "agent",
-              },
-            ],
-          },
-        ],
-        aggregations: [
-          {
-            type: "termFrequency",
-            dimension: "userId",
-            size: 1000,
-          },
-          {
-            type: "termFrequency",
-            dimension: "wrapUpCode",
-            size: 100,
-          },
-          {
-            type: "numericRange",
-            dimension: "tSegmentDuration",
-            ranges: [
-              { gt: 0, lte: 30000 }, // 0-30 seconds
-              { gt: 30000, lte: 60000 }, // 30-60 seconds
-              { gt: 60000, lte: 300000 }, // 1-5 minutes
-              { gt: 300000 }, // 5+ minutes
-            ],
-          },
-        ],
-        pageSize: 1000, // Large page size for billing data
-        pageNumber: 1,
-      };
-
-      // Add client filters if specified
-      if (clientIds && clientIds.length > 0) {
-        billingQuery.segmentFilters[0].predicates.push({
-          dimension: "userId",
-          values: clientIds,
-        });
-      }
-
-      const response = await this.api.post(
-        `/api/v2/analytics/conversations/details/query`,
-        billingQuery
-      );
-
-      // Handle the actual API response structure
-      const conversations = response.data.conversations || [];
-      const callRecords: GenesysCallRecord[] = conversations.map(
-        (conversation: any) => {
-          // Extract user and queue info from participants
-          const participants = conversation.participants || [];
-          const agentParticipant = participants.find(
-            (p: any) => p.purpose === "agent"
-          );
-          const userId = agentParticipant?.userId;
-          const queueId = agentParticipant?.queueId;
-
-          return {
-            conversationId: conversation.conversationId,
-            startTime: conversation.conversationStart,
-            endTime: conversation.conversationEnd,
-            duration: Math.round(
-              (new Date(conversation.conversationEnd).getTime() -
-                new Date(conversation.conversationStart).getTime()) /
-                1000
-            ),
-            userId,
-            queueId,
-            direction: conversation.originatingDirection || "inbound",
-            mediaType: "voice",
-            wrapUpCode: conversation.wrapUpCode,
-            recordingId: conversation.recordingId,
-          };
-        }
-      );
-
-      // Process aggregations for billing
-      const aggregations = response.data.aggregations || [];
-      const byClient: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      > = {};
-      const byWrapUpCode: Record<string, number> = {};
-
-      // Process wrap-up code aggregations
-      const wrapUpAgg = aggregations.find(
-        (agg: any) => agg.dimension === "wrapUpCode"
-      );
-      if (wrapUpAgg && wrapUpAgg.results) {
-        wrapUpAgg.results.forEach((result: any) => {
-          byWrapUpCode[result.value] = result.count;
-        });
-      }
-
-      // Group by client (userId) from the actual call records
-      callRecords.forEach((record) => {
-        if (record.userId) {
-          if (!byClient[record.userId]) {
-            byClient[record.userId] = {
-              calls: 0,
-              totalDuration: 0,
-              totalMinutes: 0,
-            };
-          }
-          byClient[record.userId].calls++;
-          byClient[record.userId].totalDuration += record.duration;
-          byClient[record.userId].totalMinutes += record.duration / 60;
-        }
-      });
-
-      // Round minutes to 2 decimal places
-      Object.values(byClient).forEach((clientData) => {
-        clientData.totalMinutes =
-          Math.round(clientData.totalMinutes * 100) / 100;
-      });
-
-      const totalCalls = callRecords.length;
-      const totalDuration = callRecords.reduce(
-        (sum, record) => sum + record.duration,
-        0
-      );
-      const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
-
-      logger.info(
-        "Retrieved billing call data from Genesys Cloud Analytics API",
-        {
-          count: callRecords.length,
-          totalHits: response.data.totalHits || 0,
-          clientsCount: Object.keys(byClient).length,
-          startDate,
-          endDate,
-        }
-      );
-
-      logGenesysAction("get_billing_call_data", {
-        success: true,
-        count: callRecords.length,
-        clientsCount: Object.keys(byClient).length,
-        startDate,
-        endDate,
-      });
-
-      return {
-        callRecords,
-        aggregations: {
-          byClient,
-          byWrapUpCode,
-          totalCalls,
-          totalDuration,
-          totalMinutes,
-        },
-      };
-    } catch (error) {
-      logger.error("Failed to get billing call data from Genesys Cloud", {
-        error,
-        startDate,
-        endDate,
-      });
-      throw error;
-    }
-  }
-
-  /**
    * Get conversations filtered by queue for queue-based billing
    */
   async getQueueBasedBillingData(
     startDate: Date,
     endDate: Date,
-    queueNames?: string[]
+    queueName: string
   ): Promise<{
     callRecords: GenesysCallRecord[];
     aggregations: {
-      byQueue: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      >;
-      byWrapUpCode: Record<string, number>;
+      totalHits: number;
       totalCalls: number;
       totalDuration: number;
       totalMinutes: number;
@@ -807,81 +598,35 @@ export class GenesysService {
       const startTime = startDate.toISOString();
       const endTime = endDate.toISOString();
 
+      if (!queueName) {
+        throw new Error("Queue name is required");
+      }
+
+      const queueId = await this.getQueueId(queueName);
       // Build the analytics query for queue-based billing
-      const queueBillingQuery: any = {
+      const queueBillingQuery = {
         interval: `${startTime}/${endTime}`,
-        paging: {
-          pageSize: 1000,
-          pageNumber: 1,
-        },
         segmentFilters: [
           {
             type: "and",
             predicates: [
               {
-                dimension: "queueName",
-                value:
-                  queueNames && queueNames.length > 0
-                    ? queueNames[0]
-                    : "Support Queue",
+                dimension: "queueId",
+                value: queueId,
               },
+            ],
+            clauses: [
               {
                 type: "or",
                 predicates: [
-                  {
-                    dimension: "mediaType",
-                    value: "voice",
-                  },
-                  {
-                    dimension: "mediaType",
-                    value: "callback",
-                  },
+                  { dimension: "mediaType", value: "callback" },
+                  { dimension: "mediaType", value: "voice" },
                 ],
               },
             ],
           },
         ],
-        aggregations: [
-          {
-            type: "termFrequency",
-            dimension: "queueName",
-            size: 100,
-          },
-          {
-            type: "termFrequency",
-            dimension: "wrapUpCode",
-            size: 100,
-          },
-          {
-            type: "numericRange",
-            dimension: "tSegmentDuration",
-            ranges: [
-              { gt: 0, lte: 30000 }, // 0-30 seconds
-              { gt: 30000, lte: 60000 }, // 30-60 seconds
-              { gt: 60000, lte: 300000 }, // 1-5 minutes
-              { gt: 300000 }, // 5+ minutes
-            ],
-          },
-        ],
       };
-
-      // Add queue filters if specified
-      if (queueNames && queueNames.length > 0) {
-        if (queueNames.length === 1) {
-          // Single queue - use exact match
-          queueBillingQuery.segmentFilters[0].predicates[0].value =
-            queueNames[0];
-        } else {
-          // Multiple queues - use OR condition
-          queueBillingQuery.segmentFilters[0].predicates[0] = {
-            type: "or",
-            predicates: queueNames.map((queueName) => ({
-              dimension: "queueName",
-              value: queueName,
-            })),
-          };
-        }
-      }
 
       const response = await this.api.post(
         `/api/v2/analytics/conversations/details/query`,
@@ -892,15 +637,6 @@ export class GenesysService {
       const conversations = response.data.conversations || [];
       const callRecords: GenesysCallRecord[] = conversations.map(
         (conversation: any) => {
-          // Extract queue info from participants
-          const participants = conversation.participants || [];
-          const agentParticipant = participants.find(
-            (p: any) => p.purpose === "agent"
-          );
-          const userId = agentParticipant?.userId;
-          const queueId = agentParticipant?.queueId;
-          const queueName = agentParticipant?.queueName;
-
           return {
             conversationId: conversation.conversationId,
             startTime: conversation.conversationStart,
@@ -910,54 +646,11 @@ export class GenesysService {
                 new Date(conversation.conversationStart).getTime()) /
                 1000
             ),
-            userId,
             queueId,
             queueName,
-            direction: conversation.originatingDirection || "inbound",
-            mediaType: "voice",
-            wrapUpCode: conversation.wrapUpCode,
-            recordingId: conversation.recordingId,
           };
         }
       );
-
-      // Process aggregations for queue-based billing
-      const aggregations = response.data.aggregations || [];
-      const byQueue: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      > = {};
-      const byWrapUpCode: Record<string, number> = {};
-
-      // Process wrap-up code aggregations
-      const wrapUpAgg = aggregations.find(
-        (agg: any) => agg.dimension === "wrapUpCode"
-      );
-      if (wrapUpAgg && wrapUpAgg.results) {
-        wrapUpAgg.results.forEach((result: any) => {
-          byWrapUpCode[result.value] = result.count;
-        });
-      }
-
-      // Group by queue from the actual call records
-      callRecords.forEach((record) => {
-        const queueName = record.queueName || "Unknown Queue";
-        if (!byQueue[queueName]) {
-          byQueue[queueName] = {
-            calls: 0,
-            totalDuration: 0,
-            totalMinutes: 0,
-          };
-        }
-        byQueue[queueName].calls++;
-        byQueue[queueName].totalDuration += record.duration;
-        byQueue[queueName].totalMinutes += record.duration / 60;
-      });
-
-      // Round minutes to 2 decimal places
-      Object.values(byQueue).forEach((queueData) => {
-        queueData.totalMinutes = Math.round(queueData.totalMinutes * 100) / 100;
-      });
 
       const totalCalls = callRecords.length;
       const totalDuration = callRecords.reduce(
@@ -971,7 +664,6 @@ export class GenesysService {
         {
           count: callRecords.length,
           totalHits: response.data.totalHits || 0,
-          queuesCount: Object.keys(byQueue).length,
           startDate,
           endDate,
         }
@@ -980,9 +672,8 @@ export class GenesysService {
       return {
         callRecords,
         aggregations: {
-          byQueue,
-          byWrapUpCode,
           totalCalls,
+          totalHits: response.data.totalHits || 0,
           totalDuration,
           totalMinutes,
         },
@@ -996,6 +687,35 @@ export class GenesysService {
           endDate,
         }
       );
+      throw error;
+    }
+  }
+
+  /**
+   * Get queue ID by queue name
+   */
+  async getQueueId(queueName: string): Promise<string> {
+    try {
+      if (!this.api) {
+        throw new Error("API client not initialized");
+      }
+
+      await this.ensureValidToken();
+
+      const response = await this.api.get("/api/v2/routing/queues", {
+        params: {
+          name: queueName,
+        },
+      });
+
+      const queues = response.data.entities || [];
+      if (queues.length === 0) {
+        throw new Error(`Queue not found: ${queueName}`);
+      }
+
+      return queues[0].id;
+    } catch (error) {
+      logger.error(`Failed to get queue ID for queue: ${queueName}`, { error });
       throw error;
     }
   }

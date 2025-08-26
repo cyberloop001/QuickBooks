@@ -81,7 +81,7 @@ export class QueueBillingScheduler {
   }
 
   /**
-   * Process monthly billing for all queues
+   * Process monthly billing for a specific customer
    */
   private async processMonthlyBilling(customer: CustomerProfile) {
     if (this.isRunning) {
@@ -111,22 +111,71 @@ export class QueueBillingScheduler {
         }: ${billingPeriod.start.toISOString()} to ${billingPeriod.end.toISOString()}`
       );
 
-      // Run billing job for this customer
-      const result = await this.billingService.runBillingJob(
-        billingPeriod.start,
-        billingPeriod.end,
-        customer.id,
-        false // Not a dry run
+      // Get queues associated with this customer from their profile
+      if (
+        !customer.genesysQueueNames ||
+        customer.genesysQueueNames.length === 0
+      ) {
+        logger.warn(
+          `No queues configured for customer ${customer.id}, skipping billing`
+        );
+        this.isRunning = false;
+        return;
+      }
+
+      // Filter out empty queue names
+      const customerQueues = customer.genesysQueueNames
+        .filter((queueName) => queueName && queueName.trim() !== "")
+        .map((queueName) => ({
+          queueName: queueName.trim(),
+          queueId: queueName.trim(), // Use queue name as ID for now
+        }));
+
+      logger.info(
+        `Found ${customerQueues.length} queues for customer ${
+          customer.id
+        }: ${customerQueues.map((q) => q.queueName).join(", ")}`
       );
 
-      logger.info("Monthly billing completed for all queues", {
-        jobId: result.jobId,
-        totalQueues: result.totalQueues,
-        totalInvoices: result.totalInvoices,
-        totalAmount: result.totalAmount,
-      });
+      // Run billing job for each queue associated with this customer
+      for (const queueData of customerQueues) {
+        try {
+          const queueName = queueData.queueName;
+          const queueId = queueData.queueId;
+
+          logger.info(
+            `Processing billing for queue: ${queueName} (${queueId})`
+          );
+
+          // Run billing job for this specific queue
+          const result = await this.billingService.runBillingJob(
+            billingPeriod.start,
+            billingPeriod.end,
+            queueName, // Pass queue name instead of customer ID
+            false // Not a dry run
+          );
+
+          logger.info(`Billing completed for queue: ${queueName}`, {
+            jobId: result.jobId,
+            totalQueues: result.totalQueues,
+            totalInvoices: result.totalInvoices,
+            totalAmount: result.totalAmount,
+          });
+        } catch (error) {
+          logger.error(`Billing failed for queue: ${queueData.queueName}`, {
+            error,
+            customerId: customer.id,
+            queueName: queueData.queueName,
+          });
+          // Continue with other queues even if one fails
+        }
+      }
+
+      logger.info(
+        `Billing completed for customer ${customer.id} across all queues`
+      );
     } catch (error) {
-      logger.error("Monthly billing failed", { error });
+      logger.error(`Billing failed for customer ${customer.id}`, { error });
     } finally {
       this.isRunning = false;
     }
@@ -237,41 +286,5 @@ export class QueueBillingScheduler {
 
     // Reinitialize scheduler
     await this.initializeScheduler();
-  }
-
-  /**
-   * Run billing manually for a specific period
-   */
-  public async runManualBilling(
-    startDate: Date,
-    endDate: Date,
-    isDryRun: boolean = false
-  ) {
-    try {
-      logger.info("Running manual billing job", {
-        startDate,
-        endDate,
-        isDryRun,
-      });
-
-      const result = await this.billingService.runBillingJob(
-        startDate,
-        endDate,
-        undefined, // No specific client ID for queue-based billing
-        isDryRun
-      );
-
-      logger.info("Manual billing job completed", {
-        jobId: result.jobId,
-        totalQueues: result.totalQueues,
-        totalInvoices: result.totalInvoices,
-        totalAmount: result.totalAmount,
-      });
-
-      return result;
-    } catch (error) {
-      logger.error("Manual billing job failed", { error });
-      throw error;
-    }
   }
 }

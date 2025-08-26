@@ -56,6 +56,12 @@ export class BillingJob {
   @Column({ type: "int", default: 0 })
   totalQueues!: number;
 
+  @Column({ nullable: true })
+  queueId!: string;
+
+  @Column({ nullable: true })
+  queueName!: string;
+
   @Column({ type: "int", default: 0 })
   totalInvoices!: number;
 
