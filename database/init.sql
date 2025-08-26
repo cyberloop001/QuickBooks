@@ -14,12 +14,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Enum types for client billing status
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'clientbillingstatus') THEN
-    CREATE TYPE clientbillingstatus AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'SKIPPED');
-  END IF;
-END $$;
+
 
 -- Table: customer_profiles (NEW - replaces clients table)
 CREATE TABLE IF NOT EXISTS customer_profiles (
@@ -93,25 +88,7 @@ CREATE TABLE IF NOT EXISTS billing_jobs (
   "updatedAt" timestamptz NOT NULL DEFAULT now()
 );
 
--- Table: client_billing_results
-CREATE TABLE IF NOT EXISTS client_billing_results (
-  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "billingJobId" uuid NOT NULL,
-  "customerProfileId" uuid NOT NULL,
-  "status" clientbillingstatus NOT NULL DEFAULT 'PENDING',
-  "totalCalls" integer NOT NULL DEFAULT 0,
-  "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0,
-  "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
-  "qboInvoiceId" text,
-  "qboInvoiceNumber" text,
-  "error" text,
-  "metadata" json,
-  "processedAt" timestamp,
-  "createdAt" timestamptz NOT NULL DEFAULT now(),
-  "updatedAt" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT fk_client_billing_results_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE CASCADE,
-  CONSTRAINT fk_client_billing_results_customer_profile FOREIGN KEY ("customerProfileId") REFERENCES customer_profiles("id") ON DELETE CASCADE
-);
+
 
 -- Table: phone_usage
 CREATE TABLE IF NOT EXISTS phone_usage (
@@ -151,9 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_billing_jobs_type ON billing_jobs ("type");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_period ON billing_jobs ("startDate", "endDate");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_customer_profile ON billing_jobs ("customerProfileId");
 
-CREATE INDEX IF NOT EXISTS idx_client_billing_results_billing_job ON client_billing_results ("billingJobId");
-CREATE INDEX IF NOT EXISTS idx_client_billing_results_customer_profile ON client_billing_results ("customerProfileId");
-CREATE INDEX IF NOT EXISTS idx_client_billing_results_status ON client_billing_results ("status");
+
 
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_qbo_id ON customer_profiles ("qboCustomerId");
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_is_active ON customer_profiles ("isActive");
@@ -188,15 +163,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'set_client_billing_results_updated_at'
-  ) THEN
-    CREATE TRIGGER set_client_billing_results_updated_at
-    BEFORE UPDATE ON client_billing_results
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-  END IF;
-END $$;
+
 
 -- Insert sample data for development (optional)
 -- Uncomment the following lines if you want sample data for testing

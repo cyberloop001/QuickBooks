@@ -13,7 +13,6 @@ import { getQBOService } from "../routes/qbo";
 import { GenesysService } from "./GenesysService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
-import * as fs from "fs";
 
 export interface BillingResult {
   success: boolean;
@@ -943,7 +942,6 @@ export class BillingService {
       const billingJobRepo = this.billingJobRepository;
       return await billingJobRepo.findOne({
         where: { jobId },
-        relations: ["clientBillingResults"],
       });
     } catch (error) {
       logger.error("Failed to get billing job", { error, jobId });

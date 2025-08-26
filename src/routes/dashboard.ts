@@ -224,7 +224,6 @@ router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     const job = await getBillingJobRepository().findOne({
       where: { id },
-      relations: ["clientBillingResults"],
     });
 
     if (!job) {

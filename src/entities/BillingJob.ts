@@ -4,11 +4,9 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
   ManyToOne,
   JoinColumn,
 } from "typeorm";
-import { ClientBillingResult } from "./ClientBillingResult";
 import { CustomerProfile } from "./CustomerProfile";
 
 export enum BillingJobStatus {
@@ -93,8 +91,6 @@ export class BillingJob {
   updatedAt!: Date;
 
   // Relationships
-  @OneToMany(() => ClientBillingResult, (result) => result.billingJob)
-  clientBillingResults!: ClientBillingResult[];
 
   // Keep customer profile for backward compatibility but make it optional
   @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs, {
