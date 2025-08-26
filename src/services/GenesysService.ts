@@ -603,77 +603,134 @@ export class GenesysService {
       }
 
       const queueId = await this.getQueueId(queueName);
-      // Build the analytics query for queue-based billing
-      const queueBillingQuery = {
-        interval: `${startTime}/${endTime}`,
-        segmentFilters: [
-          {
-            type: "and",
-            predicates: [
-              {
-                dimension: "queueId",
-                value: queueId,
-              },
-            ],
-            clauses: [
-              {
-                type: "or",
-                predicates: [
-                  { dimension: "mediaType", value: "callback" },
-                  { dimension: "mediaType", value: "voice" },
-                ],
-              },
-            ],
+
+      // Initialize variables for pagination
+      let allCallRecords: GenesysCallRecord[] = [];
+      let pageNumber = 1;
+      const pageSize = 100; // Fetch 100 records per page
+      let totalHits = 0;
+      let hasMorePages = true;
+
+      logger.info("Starting paginated retrieval of queue-based billing data", {
+        queueName,
+        startDate,
+        endDate,
+        pageSize,
+      });
+
+      // Loop through pages until we have all conversations
+      while (hasMorePages) {
+        // Build the analytics query for queue-based billing with pagination
+        const queueBillingQuery = {
+          interval: `${startTime}/${endTime}`,
+          paging: {
+            pageSize,
+            pageNumber,
           },
-        ],
-      };
+          segmentFilters: [
+            {
+              type: "and",
+              predicates: [
+                {
+                  dimension: "queueId",
+                  value: queueId,
+                },
+              ],
+              clauses: [
+                {
+                  type: "or",
+                  predicates: [
+                    { dimension: "mediaType", value: "callback" },
+                    { dimension: "mediaType", value: "voice" },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
 
-      const response = await this.api.post(
-        `/api/v2/analytics/conversations/details/query`,
-        queueBillingQuery
-      );
+        const response = await this.api.post(
+          `/api/v2/analytics/conversations/details/query`,
+          queueBillingQuery
+        );
 
-      // Handle the actual API response structure
-      const conversations = response.data.conversations || [];
-      const callRecords: GenesysCallRecord[] = conversations.map(
-        (conversation: any) => {
-          return {
-            conversationId: conversation.conversationId,
-            startTime: conversation.conversationStart,
-            endTime: conversation.conversationEnd,
-            duration: Math.round(
-              (new Date(conversation.conversationEnd).getTime() -
-                new Date(conversation.conversationStart).getTime()) /
-                1000
-            ),
-            queueId,
-            queueName,
-          };
+        // Handle the actual API response structure
+        const conversations = response.data.conversations || [];
+        const pageCallRecords: GenesysCallRecord[] = conversations.map(
+          (conversation: any) => {
+            return {
+              conversationId: conversation.conversationId,
+              startTime: conversation.conversationStart,
+              endTime: conversation.conversationEnd,
+              duration: Math.round(
+                (new Date(conversation.conversationEnd).getTime() -
+                  new Date(conversation.conversationStart).getTime()) /
+                  1000
+              ),
+              queueId,
+              queueName,
+            };
+          }
+        );
+
+        // Add page records to total collection
+        allCallRecords = allCallRecords.concat(pageCallRecords);
+
+        // Update total hits from first response
+        if (pageNumber === 1) {
+          totalHits = response.data.totalHits || 0;
         }
-      );
 
-      const totalCalls = callRecords.length;
-      const totalDuration = callRecords.reduce(
+        // Check if we have more pages
+        hasMorePages =
+          allCallRecords.length < totalHits &&
+          conversations.length === pageSize;
+
+        logger.info(
+          `Retrieved page ${pageNumber} of queue-based billing data`,
+          {
+            pageNumber,
+            pageSize,
+            recordsInPage: conversations.length,
+            totalRecordsSoFar: allCallRecords.length,
+            totalHits,
+            hasMorePages,
+          }
+        );
+
+        // Increment page number for next iteration
+        pageNumber++;
+
+        // Add a small delay to avoid overwhelming the API
+        if (hasMorePages) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      const totalCalls = allCallRecords.length;
+      const totalDuration = allCallRecords.reduce(
         (sum, record) => sum + record.duration,
         0
       );
       const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
 
       logger.info(
-        "Retrieved queue-based billing data from Genesys Cloud Analytics API",
+        "Completed paginated retrieval of queue-based billing data from Genesys Cloud Analytics API",
         {
-          count: callRecords.length,
-          totalHits: response.data.totalHits || 0,
+          totalPages: pageNumber - 1,
+          totalRecords: totalCalls,
+          totalHits,
           startDate,
           endDate,
+          queueName,
         }
       );
 
       return {
-        callRecords,
+        callRecords: allCallRecords,
         aggregations: {
           totalCalls,
-          totalHits: response.data.totalHits || 0,
+          totalHits,
           totalDuration,
           totalMinutes,
         },
@@ -685,6 +742,7 @@ export class GenesysService {
           error,
           startDate,
           endDate,
+          queueName,
         }
       );
       throw error;

@@ -30,6 +30,10 @@ export interface QueueBillingResult {
   totalCalls: number;
   totalMinutes: number;
   totalAmount: number;
+  baseMinutes?: number;
+  overageMinutes?: number;
+  overageAmount?: number;
+  minimumCharge?: number;
   invoiceCreated: boolean;
   invoiceId?: string;
   error?: string;
@@ -63,7 +67,12 @@ export class BillingService {
     billingPeriodStart: Date,
     billingPeriodEnd: Date,
     queueName: string,
-    isDryRun: boolean = false
+    isDryRun: boolean = false,
+    customerBillingConfig?: {
+      basicRatePerMinute: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+    }
   ): Promise<BillingResult> {
     const jobId = `BILL_${moment(billingPeriodStart).format(
       "YYYY_MM_DD"
@@ -107,8 +116,11 @@ export class BillingService {
         phoneUsageData,
         billingPeriodStart,
         billingPeriodEnd,
-        queueName
+        queueName,
+        customerBillingConfig
       );
+
+      console.log("aggregatedUsage", aggregatedUsage);
 
       // Create invoices (or simulate for dry run)
       const billingResults = await this.processQueueBilling(
@@ -178,11 +190,6 @@ export class BillingService {
               queueName // Pass queue name if specified
             );
 
-          fs.writeFileSync(
-            `billingData-${queueName}.json`,
-            JSON.stringify(billingData, null, 2)
-          );
-
           // Convert Genesys data to billing format
           usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
@@ -191,14 +198,6 @@ export class BillingService {
             started_at: record.startTime,
             ended_at: record.endTime,
             billable_seconds: record.duration,
-            started_pst: record.startTime, // Genesys provides UTC, convert if needed
-            ended_pst: record.endTime,
-            source: "genesys",
-            wrap_up_code: record.wrapUpCode,
-            recording_id: record.recordingId,
-            user_id: record.userId,
-            media_type: record.mediaType,
-            direction: record.direction,
           }));
 
           logger.info(
@@ -239,17 +238,11 @@ export class BillingService {
 
           usageData = phoneUsageData.map((usage) => ({
             call_id: usage.callId,
-            queueId: usage.queueId || usage.genesysQueueName || "unknown",
-            queueName:
-              usage.queueName || usage.genesysQueueName || "Unknown Queue",
+            queueId: usage.queueId || "unknown",
+            queueName: usage.queueName || "Unknown Queue",
             started_at: usage.startedAt,
             ended_at: usage.endedAt,
             billable_seconds: usage.billableSeconds,
-            started_pst: usage.startedPst,
-            ended_pst: usage.endedPst,
-            source: "phone_system",
-            media_type: usage.mediaType || "voice",
-            direction: usage.direction || "inbound",
           }));
 
           logger.info("Successfully fetched phone usage data", {
@@ -412,16 +405,22 @@ export class BillingService {
   }
 
   /**
-   * Aggregate usage data by queue
+   * Aggregate usage data by queue and calculate billing based on customer configuration
    */
   private async aggregateUsageByQueue(
     usageData: any[],
     startDate: Date,
     endDate: Date,
-    specificQueueName?: string
+    specificQueueName?: string,
+    customerBillingConfig?: {
+      basicRatePerMinute: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+    }
   ): Promise<Map<string, any>> {
     const aggregatedUsage = new Map<string, any>();
 
+    // Step 1: Aggregate raw usage data by queue
     for (const usage of usageData) {
       const queueId = usage.queueId || "unknown";
       const queueName = usage.queueName || "Unknown Queue";
@@ -432,7 +431,7 @@ export class BillingService {
       }
 
       if (!aggregatedUsage.has(queueId)) {
-        // Initialize queue usage data
+        // Initialize queue usage data structure
         aggregatedUsage.set(queueId, {
           queueId,
           queueName,
@@ -440,28 +439,107 @@ export class BillingService {
           totalSeconds: 0,
           totalMinutes: 0,
           totalAmount: 0,
+          baseMinutes: 0,
+          overageMinutes: 0,
+          overageAmount: 0,
+          minimumCharge: 0,
           calls: [],
         });
       }
 
       const queueUsage = aggregatedUsage.get(queueId);
+
+      // Accumulate usage data
       queueUsage.totalCalls++;
       queueUsage.totalSeconds += usage.billable_seconds;
       queueUsage.totalMinutes += usage.billable_seconds / 60;
-
-      // Calculate amount based on default rate (can be configured per queue later)
-      const minutes = usage.billable_seconds / 60;
-      const defaultRatePerMinute = 1.0; // Default rate, can be made configurable
-      queueUsage.totalAmount += minutes * defaultRatePerMinute;
-
       queueUsage.calls.push(usage);
     }
 
-    // Round totals to 2 decimal places
+    // Step 2: Calculate billing for each queue based on total period usage
+    for (const [queueId, usage] of aggregatedUsage) {
+      if (customerBillingConfig && customerBillingConfig.minimumMinutes > 0) {
+        // Calculate minimum charge (always applies, even if usage is below minimum)
+        const minimumCharge =
+          customerBillingConfig.basicRatePerMinute *
+          customerBillingConfig.minimumMinutes;
+        usage.minimumCharge = minimumCharge;
+
+        // Calculate overage minutes (only for minutes exceeding minimum)
+        const overageMinutes = Math.max(
+          0,
+          usage.totalMinutes - customerBillingConfig.minimumMinutes
+        );
+        usage.overageMinutes = overageMinutes;
+
+        // Calculate overage amount
+        const overageAmount =
+          overageMinutes * customerBillingConfig.overageRatePerMinute;
+        usage.overageAmount = overageAmount;
+
+        // Base minutes are the minutes covered by minimum (up to minimum or actual usage, whichever is less)
+        usage.baseMinutes = Math.min(
+          usage.totalMinutes,
+          customerBillingConfig.minimumMinutes
+        );
+
+        // Total amount is minimum charge + overage (if any)
+        usage.totalAmount = minimumCharge + overageAmount;
+
+        logger.info(`Billing calculation for queue ${usage.queueName}:`, {
+          queueId: usage.queueId,
+          queueName: usage.queueName,
+          totalMinutes: usage.totalMinutes,
+          minimumMinutes: customerBillingConfig.minimumMinutes,
+          minimumCharge: usage.minimumCharge,
+          baseMinutes: usage.baseMinutes,
+          overageMinutes: usage.overageMinutes,
+          overageAmount: usage.overageAmount,
+          totalAmount: usage.totalAmount,
+          basicRate: customerBillingConfig.basicRatePerMinute,
+          overageRate: customerBillingConfig.overageRatePerMinute,
+        });
+      } else {
+        // No customer billing configuration - fallback to default rate
+        const defaultRatePerMinute = 1.0;
+        usage.totalAmount = usage.totalMinutes * defaultRatePerMinute;
+
+        // Set default values for consistency
+        usage.baseMinutes = usage.totalMinutes;
+        usage.overageMinutes = 0;
+        usage.overageAmount = 0;
+        usage.minimumCharge = 0;
+
+        logger.info(
+          `Billing calculation for queue ${usage.queueName} (default rate):`,
+          {
+            queueId: usage.queueId,
+            queueName: usage.queueName,
+            totalMinutes: usage.totalMinutes,
+            totalAmount: usage.totalAmount,
+            ratePerMinute: defaultRatePerMinute,
+          }
+        );
+      }
+    }
+
+    // Step 3: Round all monetary and time values to 2 decimal places for consistency
     for (const [queueId, usage] of aggregatedUsage) {
       usage.totalMinutes = Math.round(usage.totalMinutes * 100) / 100;
       usage.totalAmount = Math.round(usage.totalAmount * 100) / 100;
+      usage.baseMinutes = Math.round(usage.baseMinutes * 100) / 100;
+      usage.overageMinutes = Math.round(usage.overageMinutes * 100) / 100;
+      usage.overageAmount = Math.round(usage.overageAmount * 100) / 100;
+      usage.minimumCharge = Math.round(usage.minimumCharge * 100) / 100;
     }
+
+    logger.info(`Completed aggregation for ${aggregatedUsage.size} queue(s)`, {
+      totalQueues: aggregatedUsage.size,
+      hasBillingConfig: !!customerBillingConfig,
+      billingPeriod: `${startDate.toISOString().split("T")[0]} to ${
+        endDate.toISOString().split("T")[0]
+      }`,
+    });
 
     return aggregatedUsage;
   }
@@ -496,6 +574,10 @@ export class BillingService {
           totalCalls: usage.totalCalls,
           totalMinutes: usage.totalMinutes,
           totalAmount: usage.totalAmount,
+          baseMinutes: usage.baseMinutes,
+          overageMinutes: usage.overageMinutes,
+          overageAmount: usage.overageAmount,
+          minimumCharge: usage.minimumCharge,
           invoiceCreated: false,
           error: error instanceof Error ? error.message : "Unknown error",
         });
@@ -655,8 +737,17 @@ export class BillingService {
     isDryRun: boolean
   ): Promise<QueueBillingResult> {
     try {
-      const { queueId, queueName, totalCalls, totalMinutes, totalAmount } =
-        usage;
+      const {
+        queueId,
+        queueName,
+        totalCalls,
+        totalMinutes,
+        totalAmount,
+        baseMinutes,
+        overageMinutes,
+        overageAmount,
+        minimumCharge,
+      } = usage;
 
       if (isDryRun) {
         logger.info(`DRY RUN: Would create invoice for queue: ${queueName}`, {
@@ -665,6 +756,10 @@ export class BillingService {
           totalCalls,
           totalMinutes,
           totalAmount,
+          baseMinutes,
+          overageMinutes,
+          overageAmount,
+          minimumCharge,
         });
 
         return {
@@ -673,6 +768,10 @@ export class BillingService {
           totalCalls,
           totalMinutes,
           totalAmount,
+          baseMinutes,
+          overageMinutes,
+          overageAmount,
+          minimumCharge,
           invoiceCreated: false,
         };
       }
@@ -690,6 +789,10 @@ export class BillingService {
           queueName,
           totalCalls,
           totalMinutes,
+          baseMinutes,
+          overageMinutes,
+          overageAmount,
+          minimumCharge,
           billingJobId: billingJob.id,
           period: {
             start: billingJob.startDate,
@@ -703,6 +806,10 @@ export class BillingService {
         queueName,
         invoiceId: invoiceResult.Id,
         totalAmount,
+        baseMinutes,
+        overageMinutes,
+        overageAmount,
+        minimumCharge,
       });
 
       return {
@@ -711,6 +818,10 @@ export class BillingService {
         totalCalls,
         totalMinutes,
         totalAmount,
+        baseMinutes,
+        overageMinutes,
+        overageAmount,
+        minimumCharge,
         invoiceCreated: true,
         invoiceId: invoiceResult.Id,
       };
@@ -727,6 +838,10 @@ export class BillingService {
         totalCalls: usage.totalCalls,
         totalMinutes: usage.totalMinutes,
         totalAmount: usage.totalAmount,
+        baseMinutes: usage.baseMinutes,
+        overageMinutes: usage.overageMinutes,
+        overageAmount: usage.overageAmount,
+        minimumCharge: usage.minimumCharge,
         invoiceCreated: false,
         error: error instanceof Error ? error.message : "Unknown error",
       };

@@ -210,7 +210,15 @@ router.post(
       const customerProfileRepo = getRepository(CustomerProfile);
       const activeCustomers = await customerProfileRepo.find({
         where: { isActive: true },
-        select: ["id", "qboDisplayName", "qboCompanyName", "genesysQueueNames"],
+        select: [
+          "id",
+          "qboDisplayName",
+          "qboCompanyName",
+          "genesysQueueNames",
+          "ratePerMinute",
+          "minimumMinutes",
+          "overageRatePerMinute",
+        ],
       });
 
       if (activeCustomers.length === 0) {
@@ -271,12 +279,25 @@ router.post(
       for (const queueName of uniqueQueues) {
         try {
           logger.info(`Running billing job for queue: ${queueName}`);
+          const customer = activeCustomers.find((c) =>
+            c.genesysQueueNames.includes(queueName)
+          );
+
+          if (!customer) {
+            logger.error(`Customer not found for queue: ${queueName}`);
+            continue;
+          }
 
           const result = await billingService.runBillingJob(
             startDate,
             endDate,
             queueName, // Pass queue name instead of client ID
-            isDryRun
+            isDryRun,
+            {
+              basicRatePerMinute: customer.ratePerMinute,
+              minimumMinutes: customer.minimumMinutes,
+              overageRatePerMinute: customer.overageRatePerMinute,
+            }
           );
 
           // Find which customers use this queue

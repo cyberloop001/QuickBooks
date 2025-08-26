@@ -147,12 +147,17 @@ export class QueueBillingScheduler {
             `Processing billing for queue: ${queueName} (${queueId})`
           );
 
-          // Run billing job for this specific queue
+          // Run billing job for this specific queue with customer billing configuration
           const result = await this.billingService.runBillingJob(
             billingPeriod.start,
             billingPeriod.end,
             queueName, // Pass queue name instead of customer ID
-            false // Not a dry run
+            false, // Not a dry run
+            {
+              minimumMinutes: customer.minimumMinutes,
+              basicRatePerMinute: customer.ratePerMinute,
+              overageRatePerMinute: customer.overageRatePerMinute,
+            }
           );
 
           logger.info(`Billing completed for queue: ${queueName}`, {
