@@ -121,6 +121,13 @@ async function addMissingColumns(connection: any) {
     logger.info("Added failedInvoices column to billing_jobs");
   }
 
+  if (!existingColumns.includes("totalMinutes")) {
+    await connection.query(
+      `ALTER TABLE billing_jobs ADD COLUMN "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0`
+    );
+    logger.info("Added totalMinutes column to billing_jobs");
+  }
+
   if (!existingColumns.includes("startDate")) {
     await connection.query(
       `ALTER TABLE billing_jobs ADD COLUMN "startDate" timestamp`

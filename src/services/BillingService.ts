@@ -118,9 +118,6 @@ export class BillingService {
         queueName
       );
 
-      // Store phone usage data before processing billing
-      await this.storePhoneUsageData(phoneUsageData);
-
       // Aggregate usage by queue
       const aggregatedUsage = await this.aggregateUsageByQueue(
         phoneUsageData,
@@ -940,6 +937,7 @@ export class BillingService {
       totalQueues: results.length,
       totalInvoices: results.filter((r) => r.invoiceCreated).length,
       totalAmount: results.reduce((sum, r) => sum + r.totalAmount, 0),
+      totalMinutes: results.reduce((sum, r) => sum + r.totalMinutes, 0),
       successfulInvoices: results.filter((r) => r.invoiceCreated).length,
       failedInvoices: results.filter((r) => r.error).length,
       completedAt: new Date(),

@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS billing_jobs (
   "queueName" text,
   "totalInvoices" integer NOT NULL DEFAULT 0,
   "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
+  "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0,
   "successfulInvoices" integer NOT NULL DEFAULT 0,
   "failedInvoices" integer NOT NULL DEFAULT 0,
   "error" text,
@@ -123,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_billing_jobs_status ON billing_jobs ("status");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_type ON billing_jobs ("type");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_period ON billing_jobs ("startDate", "endDate");
 CREATE INDEX IF NOT EXISTS idx_billing_jobs_customer_profile ON billing_jobs ("customerProfileId");
+CREATE INDEX IF NOT EXISTS idx_billing_jobs_total_minutes ON billing_jobs ("totalMinutes");
 
 
 

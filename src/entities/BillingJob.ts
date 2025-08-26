@@ -66,6 +66,9 @@ export class BillingJob {
   @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
   totalAmount!: number;
 
+  @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+  totalMinutes!: number;
+
   @Column({ type: "int", default: 0 })
   successfulInvoices!: number;
 
@@ -110,6 +113,10 @@ export class BillingJob {
 
   getTotalAmount(): number {
     return this.totalAmount;
+  }
+
+  getTotalMinutes(): number {
+    return this.totalMinutes;
   }
 
   getSuccessRate(): number {
