@@ -265,6 +265,58 @@ router.get("/customers/:id", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /qbo/customers/search/display-name - Search for customer by exact display name
+ */
+router.get(
+  "/customers/search/display-name",
+  [
+    query("displayName")
+      .isString()
+      .notEmpty()
+      .withMessage("Display name is required"),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array(),
+        });
+      }
+
+      if (!qboService.isAuthenticated()) {
+        return res.status(401).json({
+          success: false,
+          error:
+            "Not authenticated with QBO. Please complete OAuth flow first.",
+        });
+      }
+
+      const { displayName } = req.query;
+      const customer = await qboService.searchCustomerByDisplayName(
+        displayName as string
+      );
+
+      res.json({
+        success: true,
+        data: customer,
+        found: !!customer,
+      });
+    } catch (error) {
+      logger.error("Failed to search QBO customer by display name", { error });
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to search customer by display name",
+      });
+    }
+  }
+);
+
+/**
  * POST /qbo/test-connection - Test QBO connection
  */
 router.post("/test-connection", async (req: Request, res: Response) => {
