@@ -106,9 +106,7 @@ router.get("/overview", async (req: Request, res: Response) => {
           totalRevenue: totalRevenue?.total || 0,
         },
         usage: {
-          totalMinutes: recentUsage?.totalMinutes || 0,
-          totalCalls: recentUsage?.totalCalls || 0,
-          totalAmount: recentUsage?.totalAmount || 0,
+          totalMinutes: recentUsage?.total || 0,
         },
         system: {
           genesys: genesysStatus,
