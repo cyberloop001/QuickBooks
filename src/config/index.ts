@@ -39,7 +39,8 @@ export const config = {
   billing: {
     currency: process.env.BILLING_CURRENCY || "USD",
     timezone: process.env.BILLING_TIMEZONE || "America/Los_Angeles",
-    itemId: process.env.BILLING_ITEM_ID || "",
+    itemId: process.env.BILLING_ITEM_ID || "1",
+    itemName: process.env.BILLING_ITEM_NAME || "Services",
     taxCode: process.env.BILLING_TAX_CODE || "",
   },
   logging: {

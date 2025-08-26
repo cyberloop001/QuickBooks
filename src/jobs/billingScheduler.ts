@@ -91,6 +91,15 @@ export class QueueBillingScheduler {
       return;
     }
 
+    // Check if QBO service is authenticated before starting
+    if (!this.billingService.isQBOServiceAuthenticated()) {
+      logger.error(
+        `Cannot process billing for customer ${customer.id}: QBO service is not authenticated`
+      );
+      this.isRunning = false;
+      return;
+    }
+
     try {
       this.isRunning = true;
       logger.info(`Starting billing process for customer ${customer.id}`);

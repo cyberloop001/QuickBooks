@@ -7,6 +7,7 @@ import { config } from "../config";
 
 const router = Router();
 const qboService = new QBOService();
+export { qboService as getQBOService };
 
 /**
  * GET /qbo/auth - Get OAuth authorization URL

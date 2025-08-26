@@ -166,6 +166,15 @@ router.post(
         isDryRun = false,
       } = req.body;
 
+      // Check if QBO service is authenticated before proceeding
+      if (!billingService.isQBOServiceAuthenticated()) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "QBO service is not authenticated. Please complete the OAuth flow in the QBO settings page before running billing jobs.",
+        });
+      }
+
       logger.info("Manual billing job requested for all queues", {
         billingPeriodStart,
         billingPeriodEnd,
