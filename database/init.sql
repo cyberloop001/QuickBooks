@@ -198,38 +198,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Table: qbo_tokens
-CREATE TABLE IF NOT EXISTS qbo_tokens (
-  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  "realmId" text NOT NULL UNIQUE,
-  "accessToken" text NOT NULL,
-  "refreshToken" text NOT NULL,
-  "tokenType" text NOT NULL,
-  "expiresIn" integer NOT NULL,
-  "xRefreshTokenExpiresIn" integer NOT NULL,
-  "expiresAt" timestamptz NOT NULL,
-  "state" text,
-  "isActive" boolean NOT NULL DEFAULT true,
-  "createdAt" timestamptz NOT NULL DEFAULT now(),
-  "updatedAt" timestamptz NOT NULL DEFAULT now()
-);
-
--- Indexes for qbo_tokens
-CREATE INDEX IF NOT EXISTS idx_qbo_tokens_realm_id ON qbo_tokens ("realmId");
-CREATE INDEX IF NOT EXISTS idx_qbo_tokens_is_active ON qbo_tokens ("isActive");
-CREATE INDEX IF NOT EXISTS idx_qbo_tokens_expires_at ON qbo_tokens ("expiresAt");
-
--- Trigger for qbo_tokens updatedAt
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'set_qbo_tokens_updated_at'
-  ) THEN
-    CREATE TRIGGER set_qbo_tokens_updated_at
-    BEFORE UPDATE ON qbo_tokens
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-  END IF;
-END $$;
-
 -- Insert sample data for development (optional)
 -- Uncomment the following lines if you want sample data for testing
 
