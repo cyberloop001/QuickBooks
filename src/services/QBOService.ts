@@ -433,6 +433,57 @@ export class QBOService {
   }
 
   /**
+   * Search for customer by exact display name
+   */
+  async searchCustomerByDisplayName(displayName: string): Promise<any | null> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
+    try {
+      const query = `SELECT * FROM Customer WHERE DisplayName = '${displayName}' MAXRESULTS 1`;
+
+      const response = await this.api.get(`/query`, {
+        params: { query },
+      });
+
+      const customers = response.data.QueryResponse?.Customer || [];
+      const customer = customers[0] || null;
+
+      if (customer) {
+        logQBOServiceAction("search_customer_by_display_name", {
+          success: true,
+          displayName,
+          customerId: customer.Id,
+        });
+      } else {
+        logQBOServiceAction("search_customer_by_display_name", {
+          success: true,
+          displayName,
+          customerFound: false,
+        });
+      }
+
+      return customer;
+    } catch (error) {
+      logger.error("Failed to search customer by display name", {
+        error,
+        displayName,
+      });
+      logQBOServiceAction("search_customer_by_display_name", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        displayName,
+      });
+      throw new Error(
+        `Failed to search customer by display name: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
    * Find existing invoice to prevent duplicates
    */
   async findExistingInvoice(

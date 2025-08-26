@@ -48,7 +48,7 @@ const getPhoneUsageRepository = (): Repository<PhoneUsage> => {
 router.get("/overview", async (req: Request, res: Response) => {
   try {
     const [
-      totalClients,
+      totalQueues,
       totalBillingJobs,
       successfulJobs,
       failedJobs,
@@ -56,7 +56,11 @@ router.get("/overview", async (req: Request, res: Response) => {
       totalRevenue,
       recentUsage,
     ] = await Promise.all([
-      getClientRepository().count(),
+      getBillingJobRepository()
+        .createQueryBuilder("job")
+        .select("COUNT(DISTINCT job.queueName)", "total")
+        .where("job.queueName IS NOT NULL")
+        .getRawOne(),
       getBillingJobRepository().count(),
       getBillingJobRepository().count({
         where: { status: BillingJobStatus.COMPLETED },
@@ -71,13 +75,14 @@ router.get("/overview", async (req: Request, res: Response) => {
       getBillingJobRepository()
         .createQueryBuilder("job")
         .select("SUM(job.totalAmount)", "total")
+        .where("job.createdAt >= :date", {
+          date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        })
         .getRawOne(),
-      getPhoneUsageRepository()
-        .createQueryBuilder("usage")
-        .select("SUM(usage.billableMinutes)", "totalMinutes")
-        .addSelect("COUNT(usage.id)", "totalCalls")
-        .addSelect("SUM(usage.amount)", "totalAmount")
-        .where("usage.createdAt >= :date", {
+      getBillingJobRepository()
+        .createQueryBuilder("job")
+        .select("SUM(job.totalMinutes)", "total")
+        .where("job.createdAt >= :date", {
           date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
         })
         .getRawOne(),
@@ -90,8 +95,8 @@ router.get("/overview", async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        clients: {
-          total: totalClients,
+        queues: {
+          total: totalQueues?.total || 0,
         },
         billing: {
           totalJobs: totalBillingJobs,
@@ -101,9 +106,7 @@ router.get("/overview", async (req: Request, res: Response) => {
           totalRevenue: totalRevenue?.total || 0,
         },
         usage: {
-          totalMinutes: recentUsage?.totalMinutes || 0,
-          totalCalls: recentUsage?.totalCalls || 0,
-          totalAmount: recentUsage?.totalAmount || 0,
+          totalMinutes: recentUsage?.total || 0,
         },
         system: {
           genesys: genesysStatus,
@@ -220,7 +223,6 @@ router.get("/billing-jobs/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     const job = await getBillingJobRepository().findOne({
       where: { id },
-      relations: ["clientBillingResults"],
     });
 
     if (!job) {
@@ -264,10 +266,6 @@ router.get("/system-status", async (req: Request, res: Response) => {
         .catch(() => false),
     ]);
 
-    // Get company information if QBO is connected
-    let companyInfo: any = null;
-    // QBO status is now handled separately in QBO routes
-
     res.json({
       success: true,
       data: {
@@ -296,77 +294,5 @@ router.get("/system-status", async (req: Request, res: Response) => {
     });
   }
 });
-
-/**
- * GET /dashboard/usage-summary - Get usage summary for dashboard
- */
-router.get(
-  "/usage-summary",
-  [
-    query("days")
-      .optional()
-      .isInt({ min: 1, max: 365 })
-      .withMessage("Days must be between 1 and 365"),
-  ],
-  async (req: Request, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          errors: errors.array(),
-        });
-      }
-
-      const days = Number(req.query.days) || 30;
-      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
-      const usageSummary = await getPhoneUsageRepository()
-        .createQueryBuilder("usage")
-        .select("DATE(usage.startedAt)", "date")
-        .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
-        .addSelect("COUNT(usage.id)", "totalCalls")
-        .addSelect("SUM(usage.amount)", "totalAmount")
-        .where("usage.startedAt >= :startDate", { startDate })
-        .groupBy("DATE(usage.startedAt)")
-        .orderBy("date", "ASC")
-        .getRawMany();
-
-      const clientSummary = await getPhoneUsageRepository()
-        .createQueryBuilder("usage")
-        .select("usage.clientId", "clientId")
-        .addSelect("SUM(usage.billableMinutes)", "totalMinutes")
-        .addSelect("COUNT(usage.id)", "totalCalls")
-        .addSelect("SUM(usage.amount)", "totalAmount")
-        .where("usage.startedAt >= :startDate", { startDate })
-        .groupBy("usage.clientId")
-        .orderBy("totalAmount", "DESC")
-        .limit(10)
-        .getRawMany();
-
-      res.json({
-        success: true,
-        data: {
-          period: {
-            startDate: startDate.toISOString(),
-            endDate: new Date().toISOString(),
-            days,
-          },
-          dailyUsage: usageSummary,
-          topClients: clientSummary,
-        },
-      });
-    } catch (error) {
-      logger.error("Failed to get usage summary", { error });
-      res.status(500).json({
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to get usage summary",
-      });
-    }
-  }
-);
 
 export { router as dashboardRoutes };

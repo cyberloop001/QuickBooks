@@ -6,6 +6,8 @@ import { logger } from "../utils/logger";
 import moment from "moment-timezone";
 import { config } from "../config";
 import { BillingJobStatus, BillingJobType } from "../entities/BillingJob";
+import { getRepository } from "typeorm";
+import { CustomerProfile } from "../entities/CustomerProfile";
 
 const router = Router();
 const billingService = new BillingService();
@@ -112,7 +114,7 @@ router.get(
 );
 
 /**
- * POST /billing/run - Run billing job manually
+ * POST /billing/run - Run billing job manually for all queues
  */
 router.post(
   "/run",
@@ -146,7 +148,6 @@ router.post(
 
         return date;
       }),
-    body("clientId").optional().isString(),
     body("isDryRun").optional().isBoolean(),
   ],
   async (req: Request, res: Response) => {
@@ -162,16 +163,23 @@ router.post(
       const {
         billingPeriodStart,
         billingPeriodEnd,
-        clientId,
         isDryRun = false,
       } = req.body;
 
-      logger.info("Manual billing job requested", {
+      // Check if QBO service is authenticated before proceeding
+      if (!billingService.isQBOServiceAuthenticated()) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "QBO service is not authenticated. Please complete the OAuth flow in the QBO settings page before running billing jobs.",
+        });
+      }
+
+      logger.info("Manual billing job requested for all queues", {
         billingPeriodStart,
         billingPeriodEnd,
         startDateType: typeof billingPeriodStart,
         endDateType: typeof billingPeriodEnd,
-        clientId,
         isDryRun,
       });
 
@@ -207,16 +215,171 @@ router.post(
         endDate: endDate.toISOString(),
       });
 
-      const result = await billingService.runBillingJob(
-        startDate,
-        endDate,
-        clientId,
-        isDryRun
+      // Get all active customer profiles and their associated queues
+      const customerProfileRepo = getRepository(CustomerProfile);
+      const activeCustomers = await customerProfileRepo.find({
+        where: { isActive: true },
+        select: [
+          "id",
+          "qboDisplayName",
+          "qboCompanyName",
+          "genesysQueueNames",
+          "ratePerMinute",
+          "minimumMinutes",
+          "overageRatePerMinute",
+        ],
+      });
+
+      if (activeCustomers.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "No active customer profiles found",
+        });
+      }
+
+      logger.info(`Found ${activeCustomers.length} active customer profiles`);
+
+      // Extract all unique queues from customer profiles
+      const allQueues = new Set<string>();
+      const customerQueueMap = new Map<string, string[]>();
+
+      for (const customer of activeCustomers) {
+        if (
+          customer.genesysQueueNames &&
+          customer.genesysQueueNames.length > 0
+        ) {
+          customer.genesysQueueNames.forEach((queueName) => {
+            if (queueName && queueName.trim() !== "") {
+              allQueues.add(queueName.trim());
+            }
+          });
+          customerQueueMap.set(customer.id, customer.genesysQueueNames);
+        }
+      }
+
+      const uniqueQueues = Array.from(allQueues);
+
+      if (uniqueQueues.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "No queues found in customer profiles",
+        });
+      }
+
+      logger.info(
+        `Found ${
+          uniqueQueues.length
+        } unique queues from customer profiles: ${uniqueQueues.join(", ")}`
       );
+
+      // Run billing job for each queue
+      const queueResults: Array<{
+        queueName: string;
+        customerIds: string[];
+        success: boolean;
+        result: any;
+      }> = [];
+      const queueErrors: Array<{
+        queueName: string;
+        customerIds: string[];
+        error: string;
+      }> = [];
+
+      for (const queueName of uniqueQueues) {
+        try {
+          logger.info(`Running billing job for queue: ${queueName}`);
+          const customer = activeCustomers.find((c) =>
+            c.genesysQueueNames.includes(queueName)
+          );
+
+          if (!customer) {
+            logger.error(`Customer not found for queue: ${queueName}`);
+            continue;
+          }
+
+          const result = await billingService.runBillingJob(
+            startDate,
+            endDate,
+            queueName, // Pass queue name instead of client ID
+            isDryRun,
+            {
+              basicRatePerMinute: customer.ratePerMinute,
+              minimumMinutes: customer.minimumMinutes,
+              overageRatePerMinute: customer.overageRatePerMinute,
+            }
+          );
+
+          // Find which customers use this queue
+          const customerIds = Array.from(customerQueueMap.entries())
+            .filter(([_, queues]) => queues.includes(queueName))
+            .map(([customerId, _]) => customerId);
+
+          queueResults.push({
+            queueName,
+            customerIds,
+            success: true,
+            result,
+          });
+
+          logger.info(`Billing job completed for queue: ${queueName}`, {
+            jobId: result.jobId,
+            totalQueues: result.totalQueues,
+            totalInvoices: result.totalInvoices,
+            totalAmount: result.totalAmount,
+            customerIds,
+          });
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          logger.error(`Billing job failed for queue: ${queueName}`, { error });
+
+          // Find which customers use this queue
+          const customerIds = Array.from(customerQueueMap.entries())
+            .filter(([_, queues]) => queues.includes(queueName))
+            .map(([customerId, _]) => customerId);
+
+          queueErrors.push({
+            queueName,
+            customerIds,
+            error: errorMessage,
+          });
+        }
+      }
+
+      // Calculate overall results
+      const totalQueues = uniqueQueues.length;
+      const successfulQueues = queueResults.length;
+      const failedQueues = queueErrors.length;
+      const totalInvoices = queueResults.reduce(
+        (sum, qr) => sum + qr.result.totalInvoices,
+        0
+      );
+      const totalAmount = queueResults.reduce(
+        (sum, qr) => sum + qr.result.totalAmount,
+        0
+      );
+
+      const overallResult = {
+        success: true,
+        summary: {
+          totalQueues,
+          successfulQueues,
+          failedQueues,
+          totalInvoices,
+          totalAmount,
+        },
+        queueResults,
+        errors: queueErrors,
+        period: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        },
+        isDryRun,
+      };
 
       res.json({
         success: true,
-        data: result,
+        data: overallResult,
       });
     } catch (error) {
       logger.error("Manual billing job failed", { error });
@@ -224,65 +387,6 @@ router.post(
         success: false,
         error:
           error instanceof Error ? error.message : "Failed to run billing job",
-      });
-    }
-  }
-);
-
-/**
- * POST /billing/run-previous-month - Run billing for previous month
- */
-router.post(
-  "/run-previous-month",
-  [
-    body("clientId").optional().isString(),
-    body("isDryRun").optional().isBoolean(),
-  ],
-  async (req: Request, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          errors: errors.array(),
-        });
-      }
-
-      const { clientId, isDryRun = false } = req.body;
-
-      // Calculate previous month
-      const now = moment().tz(config.billing.timezone);
-      const previousMonth = now.clone().subtract(1, "month");
-
-      const startDate = previousMonth.clone().startOf("month").toDate();
-      const endDate = previousMonth.clone().endOf("month").toDate();
-
-      logger.info("Previous month billing job requested", {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        clientId,
-        isDryRun,
-      });
-
-      const result = await billingService.runBillingJob(
-        startDate,
-        endDate,
-        clientId,
-        isDryRun
-      );
-
-      res.json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      logger.error("Previous month billing job failed", { error });
-      res.status(500).json({
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to run previous month billing job",
       });
     }
   }

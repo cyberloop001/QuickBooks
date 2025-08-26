@@ -68,14 +68,6 @@ This directory contains the database initialization and migration scripts for th
 - **Key Fields:** `startDate`, `endDate`, `totalClients`, `totalInvoices`, `totalAmount`
 - **Additional Fields:** `executionTime`, `errorDetails`, `dryRun`
 
-#### `client_billing_results`
-
-- **Primary Key:** `id` (UUID)
-- **Foreign Keys:** `billingJobId` → `billing_jobs.id`, `clientId` → `customer_profiles.id`
-- **Enums:** `status` (PENDING, PROCESSING, COMPLETED, FAILED, SKIPPED)
-- **Key Fields:** `totalCalls`, `totalMinutes`, `totalAmount`, `qboInvoiceId`
-- **Additional Fields:** `processingTime`, `errorMessage`, `retryCount`
-
 #### `phone_usage`
 
 - **Primary Key:** `id` (UUID)
@@ -99,14 +91,6 @@ This directory contains the database initialization and migration scripts for th
 - `MONTHLY` - Automated monthly billing
 - `MANUAL` - Manual billing run
 - `DRY_RUN` - Test run without creating invoices
-
-#### `clientbillingstatus`
-
-- `PENDING` - Client billing is queued
-- `PROCESSING` - Client billing is in progress
-- `COMPLETED` - Client billing finished successfully
-- `FAILED` - Client billing encountered an error
-- `SKIPPED` - Client billing was skipped
 
 ## 🔧 Migration Process
 
@@ -161,14 +145,7 @@ The following indexes are created for optimal performance:
 - `idx_phone_usage_is_billed` - For billing status filtering
 - `idx_phone_usage_started_at` - For date range queries
 
-### `client_billing_results` table
-
-- `idx_client_billing_results_billing_job` - For billing job lookups
-- `idx_client_billing_results_client` - For client lookups
-- `idx_client_billing_results_status` - For status filtering
-- `idx_client_billing_results_created_at` - For chronological ordering
-
-## 🚀 Database Operations
+## 🚨 Important Notes
 
 ### Connection Management
 

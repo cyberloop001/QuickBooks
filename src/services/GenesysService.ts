@@ -1,7 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { logger, logGenesysAction } from "../utils/logger";
 import { config } from "../config";
-
 export interface GenesysCallRecord {
   conversationId: string;
   startTime: string;
@@ -9,6 +8,7 @@ export interface GenesysCallRecord {
   duration: number; // in seconds
   userId?: string;
   queueId?: string;
+  queueName?: string;
   customerId?: string;
   phoneNumber?: string;
   direction: "inbound" | "outbound";
@@ -573,20 +573,16 @@ export class GenesysService {
   }
 
   /**
-   * Get aggregated call data for billing purposes
+   * Get conversations filtered by queue for queue-based billing
    */
-  async getBillingCallData(
+  async getQueueBasedBillingData(
     startDate: Date,
     endDate: Date,
-    clientIds?: string[]
+    queueName: string
   ): Promise<{
     callRecords: GenesysCallRecord[];
     aggregations: {
-      byClient: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      >;
-      byWrapUpCode: Record<string, number>;
+      totalHits: number;
       totalCalls: number;
       totalDuration: number;
       totalMinutes: number;
@@ -602,192 +598,183 @@ export class GenesysService {
       const startTime = startDate.toISOString();
       const endTime = endDate.toISOString();
 
-      // Build the analytics query optimized for billing
-      const billingQuery: any = {
-        interval: `${startTime}/${endTime}`,
-        segmentFilters: [
-          {
-            type: "and",
-            predicates: [
-              {
-                dimension: "mediaType",
-                value: "voice",
-              },
-              {
-                dimension: "purpose",
-                value: "agent",
-              },
-            ],
-          },
-        ],
-        aggregations: [
-          {
-            type: "termFrequency",
-            dimension: "userId",
-            size: 1000,
-          },
-          {
-            type: "termFrequency",
-            dimension: "wrapUpCode",
-            size: 100,
-          },
-          {
-            type: "numericRange",
-            dimension: "tSegmentDuration",
-            ranges: [
-              { gt: 0, lte: 30000 }, // 0-30 seconds
-              { gt: 30000, lte: 60000 }, // 30-60 seconds
-              { gt: 60000, lte: 300000 }, // 1-5 minutes
-              { gt: 300000 }, // 5+ minutes
-            ],
-          },
-        ],
-        pageSize: 1000, // Large page size for billing data
-        pageNumber: 1,
-      };
-
-      // Add client filters if specified
-      if (clientIds && clientIds.length > 0) {
-        billingQuery.segmentFilters[0].predicates.push({
-          dimension: "userId",
-          values: clientIds,
-        });
+      if (!queueName) {
+        throw new Error("Queue name is required");
       }
 
-      const response = await this.api.post(
-        `/api/v2/analytics/conversations/details/query`,
-        billingQuery
-      );
+      const queueId = await this.getQueueId(queueName);
 
-      // Handle the actual API response structure
-      const conversations = response.data.conversations || [];
-      const callRecords: GenesysCallRecord[] = conversations.map(
-        (conversation: any) => {
-          // Extract user and queue info from participants
-          const participants = conversation.participants || [];
-          const agentParticipant = participants.find(
-            (p: any) => p.purpose === "agent"
-          );
-          const userId = agentParticipant?.userId;
-          const queueId = agentParticipant?.queueId;
+      // Initialize variables for pagination
+      let allCallRecords: GenesysCallRecord[] = [];
+      let pageNumber = 1;
+      const pageSize = 100; // Fetch 100 records per page
+      let totalHits = 0;
+      let hasMorePages = true;
 
-          return {
-            conversationId: conversation.conversationId,
-            startTime: conversation.conversationStart,
-            endTime: conversation.conversationEnd,
-            duration: Math.round(
-              (new Date(conversation.conversationEnd).getTime() -
-                new Date(conversation.conversationStart).getTime()) /
-                1000
-            ),
-            userId,
-            queueId,
-            direction: conversation.originatingDirection || "inbound",
-            mediaType: "voice",
-            wrapUpCode: conversation.wrapUpCode,
-            recordingId: conversation.recordingId,
-          };
-        }
-      );
+      logger.info("Starting paginated retrieval of queue-based billing data", {
+        queueName,
+        startDate,
+        endDate,
+        pageSize,
+      });
 
-      // Process aggregations for billing
-      const aggregations = response.data.aggregations || [];
-      const byClient: Record<
-        string,
-        { calls: number; totalDuration: number; totalMinutes: number }
-      > = {};
-      const byWrapUpCode: Record<string, number> = {};
+      // Loop through pages until we have all conversations
+      while (hasMorePages) {
+        // Build the analytics query for queue-based billing with pagination
+        const queueBillingQuery = {
+          interval: `${startTime}/${endTime}`,
+          paging: {
+            pageSize,
+            pageNumber,
+          },
+          segmentFilters: [
+            {
+              type: "and",
+              predicates: [
+                {
+                  dimension: "queueId",
+                  value: queueId,
+                },
+              ],
+              clauses: [
+                {
+                  type: "or",
+                  predicates: [
+                    { dimension: "mediaType", value: "callback" },
+                    { dimension: "mediaType", value: "voice" },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
 
-      // Process wrap-up code aggregations
-      const wrapUpAgg = aggregations.find(
-        (agg: any) => agg.dimension === "wrapUpCode"
-      );
-      if (wrapUpAgg && wrapUpAgg.results) {
-        wrapUpAgg.results.forEach((result: any) => {
-          byWrapUpCode[result.value] = result.count;
-        });
-      }
+        const response = await this.api.post(
+          `/api/v2/analytics/conversations/details/query`,
+          queueBillingQuery
+        );
 
-      // Group by client (userId) from the actual call records
-      callRecords.forEach((record) => {
-        if (record.userId) {
-          if (!byClient[record.userId]) {
-            byClient[record.userId] = {
-              calls: 0,
-              totalDuration: 0,
-              totalMinutes: 0,
+        // Handle the actual API response structure
+        const conversations = response.data.conversations || [];
+        const pageCallRecords: GenesysCallRecord[] = conversations.map(
+          (conversation: any) => {
+            return {
+              conversationId: conversation.conversationId,
+              startTime: conversation.conversationStart,
+              endTime: conversation.conversationEnd,
+              duration: Math.round(
+                (new Date(conversation.conversationEnd).getTime() -
+                  new Date(conversation.conversationStart).getTime()) /
+                  1000
+              ),
+              queueId,
+              queueName,
             };
           }
-          byClient[record.userId].calls++;
-          byClient[record.userId].totalDuration += record.duration;
-          byClient[record.userId].totalMinutes += record.duration / 60;
+        );
+
+        // Add page records to total collection
+        allCallRecords = allCallRecords.concat(pageCallRecords);
+
+        // Update total hits from first response
+        if (pageNumber === 1) {
+          totalHits = response.data.totalHits || 0;
         }
-      });
 
-      // Round minutes to 2 decimal places
-      Object.values(byClient).forEach((clientData) => {
-        clientData.totalMinutes =
-          Math.round(clientData.totalMinutes * 100) / 100;
-      });
+        // Check if we have more pages
+        hasMorePages =
+          allCallRecords.length < totalHits &&
+          conversations.length === pageSize;
 
-      const totalCalls = callRecords.length;
-      const totalDuration = callRecords.reduce(
+        logger.info(
+          `Retrieved page ${pageNumber} of queue-based billing data`,
+          {
+            pageNumber,
+            pageSize,
+            recordsInPage: conversations.length,
+            totalRecordsSoFar: allCallRecords.length,
+            totalHits,
+            hasMorePages,
+          }
+        );
+
+        // Increment page number for next iteration
+        pageNumber++;
+
+        // Add a small delay to avoid overwhelming the API
+        if (hasMorePages) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      const totalCalls = allCallRecords.length;
+      const totalDuration = allCallRecords.reduce(
         (sum, record) => sum + record.duration,
         0
       );
       const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
 
       logger.info(
-        "Retrieved billing call data from Genesys Cloud Analytics API",
+        "Completed paginated retrieval of queue-based billing data from Genesys Cloud Analytics API",
         {
-          count: callRecords.length,
-          totalHits: response.data.totalHits || 0,
-          clientsCount: Object.keys(byClient).length,
+          totalPages: pageNumber - 1,
+          totalRecords: totalCalls,
+          totalHits,
           startDate,
           endDate,
+          queueName,
         }
       );
 
-      logGenesysAction("get_billing_call_data", {
-        success: true,
-        count: callRecords.length,
-        clientsCount: Object.keys(byClient).length,
-        startDate,
-        endDate,
-      });
-
       return {
-        callRecords,
+        callRecords: allCallRecords,
         aggregations: {
-          byClient,
-          byWrapUpCode,
           totalCalls,
+          totalHits,
           totalDuration,
           totalMinutes,
         },
       };
     } catch (error) {
       logger.error(
-        "Failed to get billing call data from Genesys Cloud Analytics API",
+        "Failed to get queue-based billing data from Genesys Cloud",
         {
           error,
           startDate,
           endDate,
+          queueName,
         }
       );
+      throw error;
+    }
+  }
 
-      logGenesysAction("get_billing_call_data", {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-        startDate,
-        endDate,
+  /**
+   * Get queue ID by queue name
+   */
+  async getQueueId(queueName: string): Promise<string> {
+    try {
+      if (!this.api) {
+        throw new Error("API client not initialized");
+      }
+
+      await this.ensureValidToken();
+
+      const response = await this.api.get("/api/v2/routing/queues", {
+        params: {
+          name: queueName,
+        },
       });
 
-      throw new Error(
-        `Failed to get billing call data: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      const queues = response.data.entities || [];
+      if (queues.length === 0) {
+        throw new Error(`Queue not found: ${queueName}`);
+      }
+
+      return queues[0].id;
+    } catch (error) {
+      logger.error(`Failed to get queue ID for queue: ${queueName}`, { error });
+      throw error;
     }
   }
 

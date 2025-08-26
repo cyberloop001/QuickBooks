@@ -17,7 +17,7 @@ import { format } from "date-fns";
 import { Link } from "react-router-dom";
 
 interface DashboardOverview {
-  clients: {
+  queues: {
     total: number;
   };
   billing: {
@@ -177,7 +177,7 @@ export function Dashboard() {
             <Users className="h-4 w-4 text-gray-500" />
           </div>
           <div className="pt-4">
-            <div className="text-2xl font-bold">{overview.clients.total}</div>
+            <div className="text-2xl font-bold">{overview.queues.total}</div>
             <p className="text-xs text-gray-500">Active clients</p>
           </div>
         </div>
@@ -373,7 +373,7 @@ export function Dashboard() {
                   </h3>
                 </div>
                 <div className="pt-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {systemStatus.scheduler.billing.scheduledJobs
                       .slice(0, 6)
                       .map((schedule, index) => (

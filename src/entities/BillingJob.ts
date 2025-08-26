@@ -4,11 +4,9 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
   ManyToOne,
   JoinColumn,
 } from "typeorm";
-import { ClientBillingResult } from "./ClientBillingResult";
 import { CustomerProfile } from "./CustomerProfile";
 
 export enum BillingJobStatus {
@@ -54,13 +52,22 @@ export class BillingJob {
   endDate!: Date;
 
   @Column({ type: "int", default: 0 })
-  totalCustomers!: number;
+  totalQueues!: number;
+
+  @Column({ nullable: true })
+  queueId!: string;
+
+  @Column({ nullable: true })
+  queueName!: string;
 
   @Column({ type: "int", default: 0 })
   totalInvoices!: number;
 
   @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
   totalAmount!: number;
+
+  @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+  totalMinutes!: number;
 
   @Column({ type: "int", default: 0 })
   successfulInvoices!: number;
@@ -87,10 +94,33 @@ export class BillingJob {
   updatedAt!: Date;
 
   // Relationships
-  @OneToMany(() => ClientBillingResult, (result) => result.billingJob)
-  clientBillingResults!: ClientBillingResult[];
 
-  @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs)
+  // Keep customer profile for backward compatibility but make it optional
+  @ManyToOne(() => CustomerProfile, (profile) => profile.billingJobs, {
+    nullable: true,
+  })
   @JoinColumn({ name: "customerProfileId" })
-  customerProfile!: CustomerProfile;
+  customerProfile?: CustomerProfile;
+
+  // Helper methods
+  getTotalQueues(): number {
+    return this.totalQueues;
+  }
+
+  getTotalInvoices(): number {
+    return this.totalInvoices;
+  }
+
+  getTotalAmount(): number {
+    return this.totalAmount;
+  }
+
+  getTotalMinutes(): number {
+    return this.totalMinutes;
+  }
+
+  getSuccessRate(): number {
+    if (this.totalInvoices === 0) return 0;
+    return (this.successfulInvoices / this.totalInvoices) * 100;
+  }
 }

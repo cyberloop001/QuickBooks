@@ -87,20 +87,6 @@ async function updateEnumTypes(connection: any) {
   } catch (error) {
     logger.info("billingjobtype enum already up to date or doesn't exist");
   }
-
-  // Create client billing status enum if it doesn't exist
-  try {
-    await connection.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'clientbillingstatus') THEN
-          CREATE TYPE clientbillingstatus AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'SKIPPED');
-        END IF;
-      END $$;
-    `);
-    logger.info("clientbillingstatus enum created or already exists");
-  } catch (error) {
-    logger.info("clientbillingstatus enum already exists");
-  }
 }
 
 async function addMissingColumns(connection: any) {
@@ -133,6 +119,13 @@ async function addMissingColumns(connection: any) {
       `ALTER TABLE billing_jobs ADD COLUMN "failedInvoices" integer NOT NULL DEFAULT 0`
     );
     logger.info("Added failedInvoices column to billing_jobs");
+  }
+
+  if (!existingColumns.includes("totalMinutes")) {
+    await connection.query(
+      `ALTER TABLE billing_jobs ADD COLUMN "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0`
+    );
+    logger.info("Added totalMinutes column to billing_jobs");
   }
 
   if (!existingColumns.includes("startDate")) {
@@ -192,72 +185,12 @@ async function addMissingColumns(connection: any) {
 
 async function createMissingTables(connection: any) {
   logger.info("Checking for missing tables...");
-
-  // Check if client_billing_results table exists
-  const tableExists = await connection.query(`
-    SELECT EXISTS (
-      SELECT FROM information_schema.tables 
-      WHERE table_schema = 'public' AND table_name = 'client_billing_results'
-    )
-  `);
-
-  if (!tableExists[0].exists) {
-    logger.info("Creating client_billing_results table...");
-    await connection.query(`
-      CREATE TABLE client_billing_results (
-        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-        "billingJobId" uuid NOT NULL,
-        "clientId" uuid NOT NULL,
-        "status" clientbillingstatus NOT NULL DEFAULT 'PENDING',
-        "totalCalls" integer NOT NULL DEFAULT 0,
-        "totalMinutes" numeric(10,2) NOT NULL DEFAULT 0,
-        "totalAmount" numeric(10,2) NOT NULL DEFAULT 0,
-        "qboInvoiceId" text,
-        "qboInvoiceNumber" text,
-        "error" text,
-        "metadata" json,
-        "processedAt" timestamp,
-        "createdAt" timestamptz NOT NULL DEFAULT now(),
-        "updatedAt" timestamptz NOT NULL DEFAULT now()
-      )
-    `);
-    logger.info("Created client_billing_results table");
-  }
 }
 
 async function updateForeignKeys(connection: any) {
   logger.info("Checking foreign key constraints...");
 
   // Add foreign key constraints if they don't exist
-  try {
-    await connection.query(`
-      ALTER TABLE client_billing_results 
-      ADD CONSTRAINT fk_client_billing_results_billing_job 
-      FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE CASCADE
-    `);
-    logger.info(
-      "Added foreign key constraint for client_billing_results.billingJobId"
-    );
-  } catch (error) {
-    logger.info(
-      "Foreign key constraint for client_billing_results.billingJobId already exists"
-    );
-  }
-
-  try {
-    await connection.query(`
-      ALTER TABLE client_billing_results 
-      ADD CONSTRAINT fk_client_billing_results_client 
-      FOREIGN KEY ("clientId") REFERENCES clients("id") ON DELETE CASCADE
-    `);
-    logger.info(
-      "Added foreign key constraint for client_billing_results.clientId"
-    );
-  } catch (error) {
-    logger.info(
-      "Foreign key constraint for client_billing_results.clientId already exists"
-    );
-  }
 
   try {
     await connection.query(`
@@ -321,21 +254,7 @@ async function addMissingIndexes(connection: any) {
       table: "billing_jobs",
       columns: '"startDate", "endDate"',
     },
-    {
-      name: "idx_client_billing_results_billing_job",
-      table: "client_billing_results",
-      columns: '"billingJobId"',
-    },
-    {
-      name: "idx_client_billing_results_client",
-      table: "client_billing_results",
-      columns: '"clientId"',
-    },
-    {
-      name: "idx_client_billing_results_status",
-      table: "client_billing_results",
-      columns: '"status"',
-    },
+
     {
       name: "idx_clients_genesys_id",
       table: "clients",
@@ -379,10 +298,6 @@ async function addMissingTriggers(connection: any) {
   const triggers = [
     { name: "set_customer_profiles_updated_at", table: "customer_profiles" },
     { name: "set_billing_jobs_updated_at", table: "billing_jobs" },
-    {
-      name: "set_client_billing_results_updated_at",
-      table: "client_billing_results",
-    },
   ];
 
   for (const trigger of triggers) {

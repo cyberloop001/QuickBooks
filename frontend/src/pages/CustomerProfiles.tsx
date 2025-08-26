@@ -18,6 +18,7 @@ interface CustomerProfile {
   id: string;
   qboCustomerId?: string;
   genesysQueueNames: string[];
+  autoConnectQBO?: boolean;
   isActive: boolean;
   ratePerMinute: number;
   taxCode?: string;
@@ -1008,6 +1009,8 @@ function CustomerProfileModal({
   });
 
   const [newQueue, setNewQueue] = useState("");
+  const [qboSearchResult, setQboSearchResult] = useState<any>(null);
+  const [isSearchingQBO, setIsSearchingQBO] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1045,6 +1048,57 @@ function CustomerProfileModal({
         (q) => q !== queueToRemove
       ),
     }));
+  };
+
+  const handleSearchQBOCustomer = async () => {
+    if (!formData.qboDisplayName.trim()) {
+      toast.error("Please enter a display name to search for");
+      return;
+    }
+
+    setIsSearchingQBO(true);
+    try {
+      const response = await fetch(
+        `/api/v1/qbo/customers/search/display-name?displayName=${encodeURIComponent(
+          formData.qboDisplayName
+        )}`
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.found) {
+          setQboSearchResult(result.data);
+          toast.success(`Found QBO customer: ${result.data.DisplayName}`);
+        } else {
+          setQboSearchResult(null);
+          toast.success("No QBO customer found with that display name");
+        }
+      } else {
+        const error = await response.json();
+        toast.error(error.error || "Failed to search QBO customers");
+      }
+    } catch (error) {
+      toast.error("Failed to search QBO customers");
+      console.error("QBO search error:", error);
+    } finally {
+      setIsSearchingQBO(false);
+    }
+  };
+
+  const handleConnectQBOCustomer = async (qboCustomerId: string) => {
+    try {
+      // Update the form data with the found QBO customer ID
+      setFormData((prev) => ({
+        ...prev,
+        qboCustomerId,
+      }));
+
+      setQboSearchResult(null);
+      toast.success("QBO Customer ID updated in form");
+    } catch (error) {
+      toast.error("Failed to connect QBO customer");
+      console.error("QBO connection error:", error);
+    }
   };
 
   return (
@@ -1091,18 +1145,56 @@ function CustomerProfileModal({
                 <label className="block text-sm font-medium text-gray-700">
                   QBO Customer ID
                 </label>
-                <input
-                  type="text"
-                  value={formData.qboCustomerId}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      qboCustomerId: e.target.value,
-                    }))
-                  }
-                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
-                  placeholder="Optional"
-                />
+                <div className="flex items-center space-x-2">
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={formData.qboCustomerId}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          qboCustomerId: e.target.value,
+                        }))
+                      }
+                      disabled={true}
+                      className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
+                      placeholder="Optional"
+                    />
+                  </div>
+                  {/* Manual QBO Customer Search */}
+                  <div>
+                    {qboSearchResult ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleConnectQBOCustomer(qboSearchResult.Id)
+                        }
+                        className="mt-2 px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+                      >
+                        Connect to This Customer
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSearchQBOCustomer}
+                        disabled={
+                          !formData.qboDisplayName.trim() || isSearchingQBO
+                        }
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      >
+                        {isSearchingQBO
+                          ? "Searching..."
+                          : "Search QBO Customer ID"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {qboSearchResult && (
+                  <p className="text-sm text-green-800 mt-2 text-right">
+                    <strong>Found QBO Customer:</strong>{" "}
+                    {qboSearchResult.DisplayName} (ID: {qboSearchResult.Id})
+                  </p>
+                )}
               </div>
 
               <div>

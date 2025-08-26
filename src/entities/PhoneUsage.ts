@@ -22,9 +22,6 @@ export class PhoneUsage {
   @Column({ nullable: true })
   genesysQueueName!: string;
 
-  @Column({ nullable: true })
-  genesysUserId!: string;
-
   @Column({ type: "timestamp with time zone" })
   startedAt!: Date;
 
@@ -33,12 +30,6 @@ export class PhoneUsage {
 
   @Column({ type: "integer" })
   billableSeconds!: number;
-
-  @Column({ type: "timestamp with time zone" })
-  startedPst!: Date;
-
-  @Column({ type: "timestamp with time zone" })
-  endedPst!: Date;
 
   @Column({ type: "decimal", precision: 10, scale: 2 })
   billableMinutes!: number;
@@ -80,7 +71,7 @@ export class PhoneUsage {
   }
 
   isInBillingPeriod(startDate: Date, endDate: Date): boolean {
-    return this.startedPst >= startDate && this.startedPst <= endDate;
+    return this.startedAt >= startDate && this.startedAt <= endDate;
   }
 
   // Get the customer name from the profile
@@ -93,5 +84,15 @@ export class PhoneUsage {
   // Get the queue name (either from this record or from the profile)
   getQueueName(): string {
     return this.genesysQueueName || "Unknown Queue";
+  }
+
+  // Get the queue ID
+  getQueueId(): string {
+    return this.genesysQueueName || "unknown";
+  }
+
+  // Check if this is a voice call
+  isVoiceCall(): boolean {
+    return true; // Default to true since we removed mediaType
   }
 }
