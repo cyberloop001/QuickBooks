@@ -81,17 +81,19 @@ export function validateConfig(): void {
   const requiredFields = [
     "QBO_CLIENT_ID",
     "QBO_CLIENT_SECRET",
-    "PHONE_API_BASE_URL",
-    "PHONE_API_KEY",
-    "PHONE_API_SECRET",
-    "BILLING_ITEM_ID",
+    "GENESYS_CLIENT_ID",
+    "GENESYS_CLIENT_SECRET",
+    "JWT_SECRET",
   ];
 
   const missingFields = requiredFields.filter((field) => !process.env[field]);
 
   if (missingFields.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missingFields.join(", ")}`
+    console.warn(
+      `Missing recommended environment variables: ${missingFields.join(", ")}`
+    );
+    console.warn(
+      "Some features may not work correctly without these variables."
     );
   }
 }

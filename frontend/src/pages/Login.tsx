@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useAuthStore } from "../stores/authStore";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 interface LoginForm {
   email: string;
@@ -13,7 +14,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuthStore();
-
+  const navigate = useNavigate();
   const {
     register,
     handleSubmit,
@@ -25,6 +26,7 @@ export function Login() {
     try {
       await login(data.email, data.password);
       toast.success("Login successful!");
+      navigate("/");
     } catch (error) {
       toast.error("Login failed. Please try again.");
     } finally {

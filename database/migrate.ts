@@ -21,7 +21,10 @@ async function migrateDatabase() {
       password: config.database.password,
       database: config.database.name,
       ssl: config.database.ssl,
-      entities: [__dirname + "/../src/entities/**/*.js"],
+      entities: [
+        __dirname + "/../src/entities/**/*.js",
+        __dirname + "/../src/entities/**/*.ts",
+      ],
       migrations: [__dirname + "/migrations/**/*.js"],
       synchronize: false, // Don't auto-sync during migration
       logging: true,
