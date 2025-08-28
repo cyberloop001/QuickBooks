@@ -27,7 +27,13 @@ export class QueueBillingScheduler {
       const customerProfileRepo = getRepository(CustomerProfile);
       const customers = await customerProfileRepo.find({
         where: { isActive: true },
-        select: ["id", "billDate", "billingPeriodStart", "billingPeriodEnd"],
+        select: [
+          "id",
+          "billDate",
+          "genesysQueueNames",
+          "billingPeriodStart",
+          "billingPeriodEnd",
+        ],
       });
 
       // Schedule billing for each customer
@@ -56,7 +62,7 @@ export class QueueBillingScheduler {
 
       // Create cron expression for the customer's billing date
       // Run at 2 AM on the billing date
-      const cronExpression = `0 2 ${customer.billDate} * *`;
+      const cronExpression = `30 14 ${customer.billDate} * *`;
 
       const cronJob = new CronJob(
         cronExpression,
@@ -120,6 +126,7 @@ export class QueueBillingScheduler {
         }: ${billingPeriod.start.toISOString()} to ${billingPeriod.end.toISOString()}`
       );
 
+      console.log(customer);
       // Get queues associated with this customer from their profile
       if (
         !customer.genesysQueueNames ||

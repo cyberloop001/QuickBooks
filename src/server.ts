@@ -3,17 +3,22 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import dotenv from "dotenv";
 import { createConnection } from "typeorm";
+import { config } from "./config";
 import { logger } from "./utils/logger";
+import { setupRoutes } from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { killSwitchMiddleware } from "./middleware/killSwitch";
-import { setupRoutes } from "./routes";
 import { JobScheduler } from "./jobs/scheduler";
-import { config } from "./config";
+
+// Import entities directly for more reliable loading
+import { BillingJob } from "./entities/BillingJob";
+import { CustomerProfile } from "./entities/CustomerProfile";
+import { PhoneUsage } from "./entities/PhoneUsage";
 
 // Load environment variables
+import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
@@ -62,8 +67,11 @@ app.get("/health", (req, res) => {
 // Database connection and server startup
 async function startServer() {
   try {
-    // Connect to database
-    await createConnection({
+    logger.info(`Environment: ${config.server.environment}`);
+    logger.info(`Current directory: ${__dirname}`);
+
+    // Connect to database with explicit entity imports
+    const connection = await createConnection({
       type: "postgres",
       host: config.database.host,
       port: config.database.port,
@@ -71,13 +79,19 @@ async function startServer() {
       password: config.database.password,
       database: config.database.name,
       ssl: config.database.ssl,
-      entities: [__dirname + "/entities/**/*.ts"],
-      migrations: [__dirname + "/database/migrations/**/*.ts"],
-      synchronize: config.server.environment === "development",
+      entities: [BillingJob, CustomerProfile, PhoneUsage],
+      synchronize: true,
       logging: config.server.environment === "development",
     });
 
     logger.info("Database connection established");
+
+    // Verify entities are loaded
+    const entityMetadatas = connection.entityMetadatas;
+    logger.info(
+      `Loaded ${entityMetadatas.length} entities:`,
+      entityMetadatas.map((metadata) => metadata.name)
+    );
 
     // Setup routes AFTER database connection is established
     setupRoutes(app);

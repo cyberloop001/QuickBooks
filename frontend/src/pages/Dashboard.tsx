@@ -145,10 +145,6 @@ export function Dashboard() {
     }
   };
 
-  const getSystemHealthColor = (healthy: boolean) => {
-    return healthy ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
-  };
-
   if (!overview || !systemStatus) {
     return (
       <div className="flex items-center justify-center h-64">
