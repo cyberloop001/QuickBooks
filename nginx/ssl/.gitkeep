@@ -1,0 +1,9 @@
+# SSL Certificates Directory
+# 
+# Place your SSL certificates here:
+# - nrmedicalreports.com.crt (SSL certificate)
+# - nrmedicalreports.com.key (Private key)
+# - default.crt (Fallback certificate)
+# - default.key (Fallback private key)
+#
+# See SSL_SETUP.md for detailed instructions 
