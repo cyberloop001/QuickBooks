@@ -1,97 +1,188 @@
 # QuickBooks Phone Billing System - Docker Deployment
 
+Quick reference for Docker deployment with SSL support for `nrmedicalreports.com`.
+
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### 1. Clone and Setup Environment
 
 ```bash
-git clone <your-repo>
+git clone <repository>
 cd QuickBooks
-```
-
-### 2. Configure Environment
-
-```bash
 cp env.production .env
-# Edit .env with your actual values
+# Edit .env with your configuration
 ```
 
-### 3. Deploy Everything
+### 2. SSL Certificate Setup
+
+#### Option A: Let's Encrypt (Recommended - Free)
 
 ```bash
-./deploy.sh
+chmod +x setup-ssl.sh
+./setup-ssl.sh letsencrypt
 ```
 
-## 📋 What Gets Deployed
-
-- **Backend API** (Node.js/TypeScript) - Port 3001
-- **Frontend React App** - Accessible via Nginx proxy
-- **PostgreSQL Database** - Port 5433
-- **Nginx Reverse Proxy** - Ports 80/443
-
-## 🛠️ Common Commands
+#### Option B: Self-Signed (Development Only)
 
 ```bash
-# Deploy everything
-./deploy.sh
+chmod +x setup-ssl.sh
+./setup-ssl.sh self-signed
+```
 
-# Check status
-./deploy.sh status
+#### Option C: Commercial Certificate
 
-# View logs
-./deploy.sh logs
+```bash
+mkdir -p nginx/ssl
+# Copy your certificates:
+cp your-cert.crt nginx/ssl/nrmedicalreports.com.crt
+cp your-key.key nginx/ssl/nrmedicalreports.com.key
+cp fallback-cert.crt nginx/ssl/default.crt
+cp fallback-key.key nginx/ssl/default.key
+```
 
-# Stop services
-./deploy.sh stop
+### 3. Deploy Services
 
-# Restart services
-./deploy.sh restart
-
-# Clean up everything
-./deploy.sh cleanup
+```bash
+docker compose up -d
 ```
 
 ## 🌐 Access URLs
 
-- **Main Application**: http://localhost:80 (or http://localhost)
-- **Backend API**: http://localhost:3001
-- **Database**: localhost:5433
-- **Nginx**: http://localhost:80
+- **HTTPS (Production)**: https://nrmedicalreports.com
+- **HTTP (Redirects to HTTPS)**: http://nrmedicalreports.com
+- **API**: https://nrmedicalreports.com/api/v1
+- **Health Check**: https://nrmedicalreports.com/health
 
-## ⚙️ Environment Variables
+## 📋 Essential Commands
 
-Required in `.env`:
-
-- `QBO_CLIENT_ID` - QuickBooks client ID
-- `QBO_CLIENT_SECRET` - QuickBooks client secret
-- `GENESYS_CLIENT_ID` - Genesys Cloud client ID
-- `GENESYS_CLIENT_SECRET` - Genesys Cloud client secret
-- `JWT_SECRET` - JWT signing secret
-
-## 🔧 Troubleshooting
+### Service Management
 
 ```bash
-# Check service health
-./deploy.sh health
+# Deploy all services
+docker compose up -d
 
-# View detailed logs
+# View logs
 docker compose logs -f
 
-# Access database
-docker compose exec postgres psql -U postgres -d phone_billing
+# Restart specific service
+docker compose restart nginx
 
-# Rebuild from scratch
-./deploy.sh cleanup
-./deploy.sh deploy
+# Stop all services
+docker compose down
+
+# Rebuild and restart
+docker compose build && docker compose up -d
 ```
 
-## 📚 Full Documentation
+### SSL Management
 
-See [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) for complete deployment guide.
+```bash
+# Check SSL certificates
+./setup-ssl.sh check
 
-## 🆘 Need Help?
+# Test SSL configuration
+./setup-ssl.sh test
 
-1. Check service logs: `./deploy.sh logs`
-2. Verify environment configuration
-3. Ensure ports are available
-4. Check Docker is running
+# View nginx logs
+docker compose logs nginx
+```
+
+### Health Checks
+
+```bash
+# Check all services
+docker compose ps
+
+# Test endpoints
+curl -I https://nrmedicalreports.com/health
+curl -I https://nrmedicalreports.com/api/v1
+
+# Check SSL grade
+# Visit: https://www.ssllabs.com/ssltest/analyze.html?d=nrmedicalreports.com
+```
+
+## 🔧 Environment Variables
+
+Key environment variables for production:
+
+```bash
+# Database
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=phone_billing
+DB_USER=postgres
+DB_PASSWORD=your_secure_password
+
+# Application
+NODE_ENV=production
+PORT=3001
+CORS_ORIGIN=https://nrmedicalreports.com
+
+# QuickBooks Online
+QBO_CLIENT_ID=your_qbo_client_id
+QBO_CLIENT_SECRET=your_qbo_client_secret
+QBO_REDIRECT_URI=https://nrmedicalreports.com/auth/qbo/callback
+
+# Genesys Cloud
+GENESYS_CLIENT_ID=your_genesys_client_id
+GENESYS_CLIENT_SECRET=your_genesys_client_secret
+```
+
+## 🚨 Troubleshooting
+
+### SSL Issues
+
+```bash
+# Check certificates exist
+ls -la nginx/ssl/
+
+# Test nginx config
+docker compose exec nginx nginx -t
+
+# View nginx errors
+docker compose logs nginx
+```
+
+### Database Issues
+
+```bash
+# Check database connection
+docker compose exec postgres pg_isready -U postgres
+
+# View database logs
+docker compose logs postgres
+```
+
+### Application Issues
+
+```bash
+# Check backend logs
+docker compose logs backend
+
+# Check frontend logs
+docker compose logs frontend
+
+# Restart problem service
+docker compose restart backend
+```
+
+## 📞 Support
+
+For detailed setup instructions, see:
+
+- `SSL_SETUP.md` - Complete SSL certificate guide
+- `DOCKER_DEPLOYMENT.md` - Comprehensive deployment documentation
+
+## 🔒 Security Features
+
+✅ **HTTPS Only** - All HTTP traffic redirected to HTTPS  
+✅ **Modern SSL** - TLS 1.2+ with strong ciphers  
+✅ **Security Headers** - HSTS, X-Frame-Options, etc.  
+✅ **Domain Validation** - Only nrmedicalreports.com allowed  
+✅ **Auto-Renewal** - Let's Encrypt certificates auto-renew
+
+---
+
+**Domain**: nrmedicalreports.com  
+**SSL**: Required for production  
+**Monitoring**: Built-in health checks
