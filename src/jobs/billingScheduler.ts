@@ -30,6 +30,7 @@ export class QueueBillingScheduler {
         select: [
           "id",
           "billDate",
+          "billTime",
           "genesysQueueNames",
           "billingPeriodStart",
           "billingPeriodEnd",
@@ -60,9 +61,28 @@ export class QueueBillingScheduler {
         this.cronJobs.delete(customer.id);
       }
 
-      // Create cron expression for the customer's billing date
-      // Run at 2 AM on the billing date
-      const cronExpression = `30 14 ${customer.billDate} * *`;
+      // Parse the customer's billing time
+      const [hours, minutes] = customer.billTime.split(":").map(Number);
+
+      // Validate time format and create cron expression
+      let cronExpression: string;
+      if (
+        isNaN(hours) ||
+        isNaN(minutes) ||
+        hours < 0 ||
+        hours > 23 ||
+        minutes < 0 ||
+        minutes > 59
+      ) {
+        logger.error(
+          `Invalid billing time format for customer ${customer.id}: ${customer.billTime}. Using default 02:00.`
+        );
+        // Use default time if invalid
+        cronExpression = `0 2 ${customer.billDate} * *`;
+      } else {
+        // Create cron expression for the customer's billing date and time
+        cronExpression = `${minutes} ${hours} ${customer.billDate} * *`;
+      }
 
       const cronJob = new CronJob(
         cronExpression,
@@ -79,10 +99,37 @@ export class QueueBillingScheduler {
       cronJob.start();
 
       logger.info(
-        `Scheduled billing for customer ${customer.id} on day ${customer.billDate} of each month`
+        `Scheduled billing for customer ${customer.id} on day ${customer.billDate} at ${customer.billTime} of each month`
       );
     } catch (error) {
       logger.error("Failed to schedule monthly billing", { error });
+    }
+  }
+
+  /**
+   * Reschedule billing for a customer (useful when billing configuration changes)
+   */
+  public rescheduleBilling(customer: CustomerProfile) {
+    this.scheduleMonthlyBilling(customer);
+  }
+
+  /**
+   * Stop billing for a specific customer
+   */
+  public stopBillingForCustomer(customerId: string) {
+    try {
+      if (this.cronJobs.has(customerId)) {
+        const cronJob = this.cronJobs.get(customerId);
+        if (cronJob) {
+          cronJob.stop();
+          this.cronJobs.delete(customerId);
+          logger.info(`Stopped billing job for customer ${customerId}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`Failed to stop billing job for customer ${customerId}`, {
+        error,
+      });
     }
   }
 
@@ -112,7 +159,7 @@ export class QueueBillingScheduler {
 
       // Calculate billing period for the current month
       const now = moment().tz(config.billing.timezone);
-      const currentMonth = now.month() + 1; // moment months are 0-indexed
+      const currentMonth = now.month(); // previous month
       const currentYear = now.year();
 
       const billingPeriod = customer.getBillingPeriodForMonth(
@@ -210,6 +257,7 @@ export class QueueBillingScheduler {
       customerId: string;
       customerName: string;
       billDate: number;
+      billTime: string;
       billingPeriodStart: number;
       billingPeriodEnd: number;
       minimumMinutes: number;
@@ -221,6 +269,7 @@ export class QueueBillingScheduler {
       customerId: string;
       customerName: string;
       billDate: number;
+      billTime: string;
       billingPeriodStart: number;
       billingPeriodEnd: number;
       minimumMinutes: number;
@@ -240,6 +289,7 @@ export class QueueBillingScheduler {
             "qboDisplayName",
             "qboCompanyName",
             "billDate",
+            "billTime",
             "billingPeriodStart",
             "billingPeriodEnd",
             "minimumMinutes",
@@ -256,6 +306,7 @@ export class QueueBillingScheduler {
             customerId: customer.id,
             customerName,
             billDate: customer.billDate,
+            billTime: customer.billTime,
             billingPeriodStart: customer.billingPeriodStart,
             billingPeriodEnd: customer.billingPeriodEnd,
             minimumMinutes: customer.minimumMinutes,

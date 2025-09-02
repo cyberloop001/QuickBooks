@@ -49,6 +49,7 @@ export interface UpdateCustomerProfileData {
 
   // Billing Configuration Fields
   billDate?: number;
+  billTime?: string;
   billingPeriodStart?: number;
   billingPeriodEnd?: number;
   minimumMinutes?: number;
@@ -583,6 +584,14 @@ export class CustomerProfileService {
         throw new Error("Customer profile not found");
       }
 
+      // Store old billing configuration for comparison
+      const oldBillingConfig = {
+        billDate: profile.billDate,
+        billTime: profile.billTime,
+        billingPeriodStart: profile.billingPeriodStart,
+        billingPeriodEnd: profile.billingPeriodEnd,
+      };
+
       // Check if qboCustomerId already exists (if being updated)
       if (
         updateData.qboCustomerId &&
@@ -624,10 +633,47 @@ export class CustomerProfileService {
       Object.assign(profile, updateData);
       const updatedProfile = await this.customerProfileRepository.save(profile);
 
+      // Check if billing configuration changed and reschedule if needed
+      if (profile.hasBillingConfigChanged(oldBillingConfig)) {
+        try {
+          // Import and use the billing scheduler to reschedule
+          const { QueueBillingScheduler } = await import(
+            "../jobs/billingScheduler"
+          );
+          const billingScheduler = new QueueBillingScheduler();
+
+          // Reschedule billing for this customer
+          billingScheduler.rescheduleBilling(updatedProfile);
+
+          logger.info("Rescheduled billing job due to configuration change", {
+            customerId: updatedProfile.id,
+            customerName: updatedProfile.qboDisplayName,
+            oldConfig: oldBillingConfig,
+            newConfig: {
+              billDate: updatedProfile.billDate,
+              billTime: updatedProfile.billTime,
+              billingPeriodStart: updatedProfile.billingPeriodStart,
+              billingPeriodEnd: updatedProfile.billingPeriodEnd,
+            },
+          });
+        } catch (rescheduleError) {
+          logger.error(
+            "Failed to reschedule billing job after profile update",
+            {
+              error: rescheduleError,
+              customerId: updatedProfile.id,
+              customerName: updatedProfile.qboDisplayName,
+            }
+          );
+          // Don't fail the update if rescheduling fails
+        }
+      }
+
       logger.info("Updated customer profile", {
         id,
         name: updatedProfile.qboDisplayName,
         updateData,
+        billingRescheduled: profile.hasBillingConfigChanged(oldBillingConfig),
       });
 
       return updatedProfile;
@@ -771,6 +817,19 @@ export class CustomerProfileService {
     isActive: boolean
   ): Promise<void> {
     try {
+      // Get current profiles to check billing configuration
+      const currentProfiles = await this.customerProfileRepository.find({
+        where: { id: In(profileIds) },
+        select: [
+          "id",
+          "qboDisplayName",
+          "billDate",
+          "billTime",
+          "billingPeriodStart",
+          "billingPeriodEnd",
+        ],
+      });
+
       await this.customerProfileRepository
         .createQueryBuilder()
         .update(CustomerProfile)
@@ -778,10 +837,68 @@ export class CustomerProfileService {
         .whereInIds(profileIds)
         .execute();
 
+      // Reschedule billing jobs for affected customers
+      if (isActive) {
+        try {
+          const { QueueBillingScheduler } = await import(
+            "../jobs/billingScheduler"
+          );
+          const billingScheduler = new QueueBillingScheduler();
+
+          for (const profile of currentProfiles) {
+            billingScheduler.rescheduleBilling(profile);
+          }
+
+          logger.info(
+            "Rescheduled billing jobs for activated customer profiles",
+            {
+              profileIds,
+              count: profileIds.length,
+            }
+          );
+        } catch (rescheduleError) {
+          logger.error(
+            "Failed to reschedule billing jobs for activated profiles",
+            {
+              error: rescheduleError,
+              profileIds,
+            }
+          );
+          // Don't fail the bulk update if rescheduling fails
+        }
+      } else {
+        // Stop billing jobs for deactivated profiles
+        try {
+          const { QueueBillingScheduler } = await import(
+            "../jobs/billingScheduler"
+          );
+          const billingScheduler = new QueueBillingScheduler();
+
+          for (const profile of currentProfiles) {
+            billingScheduler.stopBillingForCustomer(profile.id);
+          }
+
+          logger.info(
+            "Stopped billing jobs for deactivated customer profiles",
+            {
+              profileIds,
+              count: profileIds.length,
+            }
+          );
+        } catch (stopError) {
+          logger.error("Failed to stop billing jobs for deactivated profiles", {
+            error: stopError,
+            profileIds,
+          });
+          // Don't fail the bulk update if stopping fails
+        }
+      }
+
       logger.info("Bulk updated customer profile status", {
         profileIds,
         isActive,
         count: profileIds.length,
+        billingJobsUpdated: true,
       });
     } catch (error) {
       logger.error("Failed to bulk update customer profile status", {

@@ -38,6 +38,9 @@ export class CustomerProfile {
   @Column({ type: "integer", default: 1 })
   billDate!: number; // Day of month to bill (1-31)
 
+  @Column({ type: "text", default: "02:00" })
+  billTime!: string; // Time of day to bill (HH:MM format, 24-hour)
+
   @Column({ type: "integer", default: 1 })
   billingPeriodStart!: number; // Day of month billing period starts (1-31)
 
@@ -209,6 +212,25 @@ export class CustomerProfile {
     }
 
     return { start: startDate, end: endDate };
+  }
+
+  /**
+   * Check if billing configuration has changed and needs rescheduling
+   */
+  hasBillingConfigChanged(oldProfile: Partial<CustomerProfile>): boolean {
+    return (
+      this.billDate !== oldProfile.billDate ||
+      this.billTime !== oldProfile.billTime ||
+      this.billingPeriodStart !== oldProfile.billingPeriodStart ||
+      this.billingPeriodEnd !== oldProfile.billingPeriodEnd
+    );
+  }
+
+  /**
+   * Get billing configuration summary
+   */
+  getBillingConfigSummary(): string {
+    return `Day ${this.billDate} at ${this.billTime} (Period: ${this.billingPeriodStart}-${this.billingPeriodEnd})`;
   }
 
   getNextBillingDate(): Date {

@@ -18,33 +18,25 @@ interface CustomerProfile {
   id: string;
   qboCustomerId?: string;
   genesysQueueNames: string[];
-  autoConnectQBO?: boolean;
   isActive: boolean;
   ratePerMinute: number;
   taxCode?: string;
   notes?: string;
-
-  // Billing Configuration Fields
   billDate: number;
+  billTime: string;
   billingPeriodStart: number;
   billingPeriodEnd: number;
   minimumMinutes: number;
   overageRatePerMinute: number;
-
-  // QBO Customer Fields
-  qboDisplayName: string; // Required
+  qboDisplayName: string;
   qboCompanyName?: string;
   qboGivenName?: string;
   qboFamilyName?: string;
   qboMiddleName?: string;
   qboTitle?: string;
   qboSuffix?: string;
-
-  // QBO Contact Fields
   qboPrimaryEmailAddr?: string;
   qboPrimaryPhone?: string;
-
-  // QBO Address Fields
   qboLine1?: string;
   qboCity?: string;
   qboCountrySubDivisionCode?: string;
@@ -273,6 +265,70 @@ export function CustomerProfiles() {
     }
   };
 
+  const handleRescheduleBilling = async (profileId: string) => {
+    try {
+      const response = await fetch(
+        `/api/v1/customer-profiles/${profileId}/reschedule-billing`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to reschedule billing");
+      }
+
+      const data = await response.json();
+      toast.success(`Billing rescheduled for ${data.data.customerName}`);
+
+      // Refresh the profiles list
+      fetchCustomerProfiles();
+    } catch (error) {
+      console.error("Error rescheduling billing:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to reschedule billing"
+      );
+    }
+  };
+
+  const handleRescheduleAllBilling = async () => {
+    try {
+      const response = await fetch(
+        "/api/v1/customer-profiles/reschedule-all-billing",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to reschedule all billing");
+      }
+
+      const data = await response.json();
+      toast.success(
+        `Rescheduled billing for ${data.data.successCount} customer profiles`
+      );
+
+      // Refresh the profiles list
+      fetchCustomerProfiles();
+    } catch (error) {
+      console.error("Error rescheduling all billing:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reschedule all billing"
+      );
+    }
+  };
+
   const getStatusBadge = (profile: CustomerProfile) => {
     if (!profile.isActive) {
       return (
@@ -364,23 +420,31 @@ export function CustomerProfiles() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Customer Profiles
           </h1>
-          <p className="text-gray-600">
-            Manage customer profiles that bridge Genesys queues and QuickBooks
-            customers
+          <p className="mt-1 text-sm text-gray-500">
+            Manage customer profiles and billing configurations
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Customer Profile
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <button
+            onClick={handleRescheduleAllBilling}
+            className="inline-flex items-center justify-center px-4 py-2 border border-yellow-300 shadow-sm text-sm font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Reschedule All Billing
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer Profile
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -833,7 +897,7 @@ export function CustomerProfiles() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         <div className="font-medium text-gray-900">
-                          Bill: Day {profile.billDate}
+                          Bill: Day {profile.billDate} at {profile.billTime}
                         </div>
                         <div className="text-xs text-gray-500">
                           Period: {profile.billingPeriodStart} -{" "}
@@ -878,6 +942,13 @@ export function CustomerProfiles() {
                           title="Delete Profile"
                         >
                           <Trash2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleRescheduleBilling(profile.id)}
+                          className="text-yellow-600 hover:text-yellow-900"
+                          title="Reschedule Billing"
+                        >
+                          <RefreshCw className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -947,6 +1018,7 @@ export function CustomerProfiles() {
             setShowModal(false);
             setEditingProfile(null);
           }}
+          onRescheduleBilling={handleRescheduleBilling}
         />
       )}
 
@@ -965,29 +1037,28 @@ interface CustomerProfileModalProps {
     profile: Omit<CustomerProfile, "id" | "createdAt" | "updatedAt">
   ) => void;
   onClose: () => void;
+  onRescheduleBilling: (profileId: string) => Promise<void>;
 }
 
 function CustomerProfileModal({
   profile,
   onSave,
   onClose,
+  onRescheduleBilling,
 }: CustomerProfileModalProps) {
   const [formData, setFormData] = useState({
     qboCustomerId: profile?.qboCustomerId || "",
     genesysQueueNames: profile?.genesysQueueNames || [],
+    isActive: profile?.isActive ?? true,
     ratePerMinute: profile?.ratePerMinute || 1.0,
     taxCode: profile?.taxCode || "",
     notes: profile?.notes || "",
-    isActive: profile?.isActive ?? true,
-
-    // Billing Configuration Fields
     billDate: profile?.billDate || 1,
+    billTime: profile?.billTime || "02:00",
     billingPeriodStart: profile?.billingPeriodStart || 1,
     billingPeriodEnd: profile?.billingPeriodEnd || 31,
     minimumMinutes: profile?.minimumMinutes || 0,
     overageRatePerMinute: profile?.overageRatePerMinute || 1.0,
-
-    // QBO Customer Fields
     qboDisplayName: profile?.qboDisplayName || "",
     qboCompanyName: profile?.qboCompanyName || "",
     qboGivenName: profile?.qboGivenName || "",
@@ -995,17 +1066,14 @@ function CustomerProfileModal({
     qboMiddleName: profile?.qboMiddleName || "",
     qboTitle: profile?.qboTitle || "",
     qboSuffix: profile?.qboSuffix || "",
-
-    // QBO Contact Fields
     qboPrimaryEmailAddr: profile?.qboPrimaryEmailAddr || "",
     qboPrimaryPhone: profile?.qboPrimaryPhone || "",
-
-    // QBO Address Fields
     qboLine1: profile?.qboLine1 || "",
     qboCity: profile?.qboCity || "",
     qboCountrySubDivisionCode: profile?.qboCountrySubDivisionCode || "",
     qboPostalCode: profile?.qboPostalCode || "",
     qboCountry: profile?.qboCountry || "US",
+    qboMetadata: profile?.qboMetadata || {},
   });
 
   const [newQueue, setNewQueue] = useState("");
@@ -1388,25 +1456,46 @@ function CustomerProfileModal({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">
-                  Bill Date (Day of Month)
+                  Bill Date (Day)
                 </label>
                 <input
                   type="number"
                   min="1"
                   max="31"
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
                   value={formData.billDate}
                   onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
+                    setFormData({
+                      ...formData,
                       billDate: parseInt(e.target.value, 10),
-                    }))
+                    })
                   }
-                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="mt-1 text-xs text-gray-500">
                   Day of month to bill (1-31)
                 </p>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Bill Time
+                </label>
+                <input
+                  type="time"
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  value={formData.billTime}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      billTime: e.target.value,
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Time of day to run billing (24-hour format)
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   Billing Period Start (Day)
@@ -1492,6 +1581,30 @@ function CustomerProfileModal({
               </div>
             </div>
           </div>
+
+          {/* Reschedule Billing Button - Only show when editing */}
+          {profile && (
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h5 className="text-sm font-medium text-gray-700">
+                    Billing Schedule
+                  </h5>
+                  <p className="text-xs text-gray-500">
+                    Current: Day {profile.billDate} at {profile.billTime}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRescheduleBilling(profile.id)}
+                  className="inline-flex items-center px-3 py-2 border border-yellow-300 shadow-sm text-sm leading-4 font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Reschedule Now
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* QBO Address Fields */}
           <div className="border-t pt-4">

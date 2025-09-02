@@ -679,4 +679,166 @@ router.post(
   }
 );
 
+/**
+ * POST /customer-profiles/:id/reschedule-billing - Manually reschedule billing job for a customer
+ */
+router.post("/:id/reschedule-billing", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Get the customer profile
+    const profile = await getCustomerProfileService().getCustomerProfileById(
+      id
+    );
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        error: "Customer profile not found",
+      });
+    }
+
+    // Check if profile is active
+    if (!profile.isActive) {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot reschedule billing for inactive customer profile",
+      });
+    }
+
+    // Reschedule billing job
+    try {
+      const { QueueBillingScheduler } = await import(
+        "../jobs/billingScheduler"
+      );
+      const billingScheduler = new QueueBillingScheduler();
+
+      billingScheduler.rescheduleBilling(profile);
+
+      logger.info("Manually rescheduled billing job for customer", {
+        customerId: profile.id,
+        customerName: profile.qboDisplayName,
+        billingConfig: profile.getBillingConfigSummary(),
+      });
+
+      res.json({
+        success: true,
+        message: "Billing job rescheduled successfully",
+        data: {
+          customerId: profile.id,
+          customerName: profile.qboDisplayName,
+          billingConfig: profile.getBillingConfigSummary(),
+          nextRun: "Will be calculated on next scheduler check",
+        },
+      });
+    } catch (rescheduleError) {
+      logger.error("Failed to manually reschedule billing job", {
+        error: rescheduleError,
+        customerId: profile.id,
+        customerName: profile.qboDisplayName,
+      });
+
+      res.status(500).json({
+        success: false,
+        error: "Failed to reschedule billing job",
+        details:
+          rescheduleError instanceof Error
+            ? rescheduleError.message
+            : "Unknown error",
+      });
+    }
+  } catch (error) {
+    logger.error("Failed to reschedule billing job", { error });
+    res.status(500).json({
+      success: false,
+      error: "Failed to reschedule billing job",
+    });
+  }
+});
+
+/**
+ * POST /customer-profiles/reschedule-all-billing - Reschedule all billing jobs for active customers
+ */
+router.post("/reschedule-all-billing", async (req: Request, res: Response) => {
+  try {
+    // Get all active customer profiles
+    const activeProfiles =
+      await getCustomerProfileService().getActiveCustomerProfiles();
+
+    if (activeProfiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "No active customer profiles found",
+      });
+    }
+
+    // Reschedule billing for all active profiles
+    try {
+      const { QueueBillingScheduler } = await import(
+        "../jobs/billingScheduler"
+      );
+      const billingScheduler = new QueueBillingScheduler();
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const profile of activeProfiles) {
+        try {
+          billingScheduler.rescheduleBilling(profile);
+          successCount++;
+        } catch (profileError) {
+          errorCount++;
+          logger.error("Failed to reschedule billing for profile", {
+            error: profileError,
+            customerId: profile.id,
+            customerName: profile.qboDisplayName,
+          });
+        }
+      }
+
+      logger.info("Bulk rescheduled billing jobs", {
+        totalProfiles: activeProfiles.length,
+        successCount,
+        errorCount,
+      });
+
+      res.json({
+        success: true,
+        message: "Billing jobs rescheduled successfully",
+        data: {
+          totalProfiles: activeProfiles.length,
+          successCount,
+          errorCount,
+          profiles: activeProfiles.map((p) => ({
+            id: p.id,
+            name: p.qboDisplayName,
+            billingConfig: p.getBillingConfigSummary(),
+          })),
+        },
+      });
+    } catch (rescheduleError) {
+      logger.error("Failed to bulk reschedule billing jobs", {
+        error: rescheduleError,
+        totalProfiles: activeProfiles.length,
+      });
+
+      res.status(500).json({
+        success: false,
+        error: "Failed to reschedule billing jobs",
+        details:
+          rescheduleError instanceof Error
+            ? rescheduleError.message
+            : "Unknown error",
+      });
+    }
+  } catch (error) {
+    logger.error("Failed to get active customer profiles for rescheduling", {
+      error,
+    });
+    res.status(500).json({
+      success: false,
+      error: "Failed to get customer profiles",
+    });
+  }
+});
+
 export { router as customerProfileRoutes };

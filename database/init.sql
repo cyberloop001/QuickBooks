@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
   
   -- Billing Configuration Fields
   "billDate" integer NOT NULL DEFAULT 1, -- Day of month to bill (1-31)
+  "billTime" text NOT NULL DEFAULT '02:00', -- Time of day to bill (HH:MM format, 24-hour)
   "billingPeriodStart" integer NOT NULL DEFAULT 1, -- Day of month billing period starts (1-31)
   "billingPeriodEnd" integer NOT NULL DEFAULT 31, -- Day of month billing period ends (1-31)
   "minimumMinutes" integer NOT NULL DEFAULT 0, -- Minimum minutes included in base rate
