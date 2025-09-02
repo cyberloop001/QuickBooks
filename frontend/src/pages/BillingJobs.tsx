@@ -803,7 +803,7 @@ export function BillingJobs() {
                                 {queue.name}
                               </label>
                               <div className="text-xs text-gray-500 mt-1">
-                                {queue.customers.map((customer, idx) => (
+                                {queue.customers.map((customer, _idx) => (
                                   <div
                                     key={customer.customerId}
                                     className="mb-1"
