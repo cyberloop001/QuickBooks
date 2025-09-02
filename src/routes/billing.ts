@@ -266,13 +266,50 @@ router.post(
         });
       }
 
+      // Check if specific queues were selected
+      const selectedQueues = req.body.selectedQueues;
+      let queuesToProcess: string[];
+
+      if (
+        selectedQueues &&
+        Array.isArray(selectedQueues) &&
+        selectedQueues.length > 0
+      ) {
+        // Validate that all selected queues exist
+        const invalidQueues = selectedQueues.filter(
+          (queue) => !uniqueQueues.includes(queue)
+        );
+        if (invalidQueues.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: `Invalid queues selected: ${invalidQueues.join(
+              ", "
+            )}. Available queues: ${uniqueQueues.join(", ")}`,
+          });
+        }
+        queuesToProcess = selectedQueues;
+        logger.info(
+          `Manual billing job requested for selected queues: ${queuesToProcess.join(
+            ", "
+          )}`
+        );
+      } else {
+        // If no specific queues selected, use all queues (backward compatibility)
+        queuesToProcess = uniqueQueues;
+        logger.info(
+          `Manual billing job requested for all queues: ${queuesToProcess.join(
+            ", "
+          )}`
+        );
+      }
+
       logger.info(
-        `Found ${
-          uniqueQueues.length
-        } unique queues from customer profiles: ${uniqueQueues.join(", ")}`
+        `Processing ${queuesToProcess.length} queues: ${queuesToProcess.join(
+          ", "
+        )}`
       );
 
-      // Run billing job for each queue
+      // Run billing job for each selected queue
       const queueResults: Array<{
         queueName: string;
         customerIds: string[];
@@ -285,7 +322,7 @@ router.post(
         error: string;
       }> = [];
 
-      for (const queueName of uniqueQueues) {
+      for (const queueName of queuesToProcess) {
         try {
           logger.info(`Running billing job for queue: ${queueName}`);
           const customer = activeCustomers.find((c) =>
@@ -553,6 +590,95 @@ router.get("/status", async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: "Failed to get billing status",
+    });
+  }
+});
+
+/**
+ * GET /billing/queues - Get available queues for manual billing
+ */
+router.get("/queues", async (req: Request, res: Response) => {
+  try {
+    const customerProfileRepo = getRepository(CustomerProfile);
+    const activeCustomers = await customerProfileRepo.find({
+      where: { isActive: true },
+      select: [
+        "id",
+        "qboDisplayName",
+        "qboCompanyName",
+        "genesysQueueNames",
+        "ratePerMinute",
+        "minimumMinutes",
+        "overageRatePerMinute",
+      ],
+    });
+
+    if (activeCustomers.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          queues: [],
+          customers: [],
+        },
+      });
+    }
+
+    // Extract all unique queues and customer information
+    const allQueues = new Set<string>();
+    const queueCustomerMap = new Map<
+      string,
+      Array<{
+        customerId: string;
+        qboDisplayName: string;
+        qboCompanyName: string;
+        ratePerMinute: number;
+        minimumMinutes: number;
+        overageRatePerMinute: number;
+      }>
+    >();
+
+    for (const customer of activeCustomers) {
+      if (customer.genesysQueueNames && customer.genesysQueueNames.length > 0) {
+        customer.genesysQueueNames.forEach((queueName) => {
+          if (queueName && queueName.trim() !== "") {
+            const trimmedQueueName = queueName.trim();
+            allQueues.add(trimmedQueueName);
+
+            // Add customer info to queue map
+            if (!queueCustomerMap.has(trimmedQueueName)) {
+              queueCustomerMap.set(trimmedQueueName, []);
+            }
+            queueCustomerMap.get(trimmedQueueName)!.push({
+              customerId: customer.id,
+              qboDisplayName: customer.qboDisplayName || "Unknown",
+              qboCompanyName: customer.qboCompanyName || "Unknown",
+              ratePerMinute: customer.ratePerMinute || 0,
+              minimumMinutes: customer.minimumMinutes || 0,
+              overageRatePerMinute: customer.overageRatePerMinute || 0,
+            });
+          }
+        });
+      }
+    }
+
+    const uniqueQueues = Array.from(allQueues).sort();
+    const queueDetails = uniqueQueues.map((queueName) => ({
+      name: queueName,
+      customers: queueCustomerMap.get(queueName) || [],
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        queues: queueDetails,
+        totalQueues: uniqueQueues.length,
+      },
+    });
+  } catch (error) {
+    logger.error("Failed to get available queues", { error });
+    res.status(500).json({
+      success: false,
+      error: "Failed to get available queues",
     });
   }
 });
