@@ -18,33 +18,25 @@ interface CustomerProfile {
   id: string;
   qboCustomerId?: string;
   genesysQueueNames: string[];
-  autoConnectQBO?: boolean;
   isActive: boolean;
   ratePerMinute: number;
   taxCode?: string;
   notes?: string;
-
-  // Billing Configuration Fields
   billDate: number;
+  billTime: string;
   billingPeriodStart: number;
   billingPeriodEnd: number;
   minimumMinutes: number;
   overageRatePerMinute: number;
-
-  // QBO Customer Fields
-  qboDisplayName: string; // Required
+  qboDisplayName: string;
   qboCompanyName?: string;
   qboGivenName?: string;
   qboFamilyName?: string;
   qboMiddleName?: string;
   qboTitle?: string;
   qboSuffix?: string;
-
-  // QBO Contact Fields
   qboPrimaryEmailAddr?: string;
   qboPrimaryPhone?: string;
-
-  // QBO Address Fields
   qboLine1?: string;
   qboCity?: string;
   qboCountrySubDivisionCode?: string;
@@ -833,7 +825,7 @@ export function CustomerProfiles() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         <div className="font-medium text-gray-900">
-                          Bill: Day {profile.billDate}
+                          Bill: Day {profile.billDate} at {profile.billTime}
                         </div>
                         <div className="text-xs text-gray-500">
                           Period: {profile.billingPeriodStart} -{" "}
@@ -975,19 +967,16 @@ function CustomerProfileModal({
   const [formData, setFormData] = useState({
     qboCustomerId: profile?.qboCustomerId || "",
     genesysQueueNames: profile?.genesysQueueNames || [],
+    isActive: profile?.isActive ?? true,
     ratePerMinute: profile?.ratePerMinute || 1.0,
     taxCode: profile?.taxCode || "",
     notes: profile?.notes || "",
-    isActive: profile?.isActive ?? true,
-
-    // Billing Configuration Fields
     billDate: profile?.billDate || 1,
+    billTime: profile?.billTime || "02:00",
     billingPeriodStart: profile?.billingPeriodStart || 1,
     billingPeriodEnd: profile?.billingPeriodEnd || 31,
     minimumMinutes: profile?.minimumMinutes || 0,
     overageRatePerMinute: profile?.overageRatePerMinute || 1.0,
-
-    // QBO Customer Fields
     qboDisplayName: profile?.qboDisplayName || "",
     qboCompanyName: profile?.qboCompanyName || "",
     qboGivenName: profile?.qboGivenName || "",
@@ -995,17 +984,14 @@ function CustomerProfileModal({
     qboMiddleName: profile?.qboMiddleName || "",
     qboTitle: profile?.qboTitle || "",
     qboSuffix: profile?.qboSuffix || "",
-
-    // QBO Contact Fields
     qboPrimaryEmailAddr: profile?.qboPrimaryEmailAddr || "",
     qboPrimaryPhone: profile?.qboPrimaryPhone || "",
-
-    // QBO Address Fields
     qboLine1: profile?.qboLine1 || "",
     qboCity: profile?.qboCity || "",
     qboCountrySubDivisionCode: profile?.qboCountrySubDivisionCode || "",
     qboPostalCode: profile?.qboPostalCode || "",
     qboCountry: profile?.qboCountry || "US",
+    qboMetadata: profile?.qboMetadata || {},
   });
 
   const [newQueue, setNewQueue] = useState("");
@@ -1388,25 +1374,46 @@ function CustomerProfileModal({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">
-                  Bill Date (Day of Month)
+                  Bill Date (Day)
                 </label>
                 <input
                   type="number"
                   min="1"
                   max="31"
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
                   value={formData.billDate}
                   onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
+                    setFormData({
+                      ...formData,
                       billDate: parseInt(e.target.value, 10),
-                    }))
+                    })
                   }
-                  className="mt-1 pl-2 block w-full border-gray-300 rounded-md h-8 shadow-sm focus:outline-gray-500 focus:ring-gray-500 focus:border-gray-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="mt-1 text-xs text-gray-500">
                   Day of month to bill (1-31)
                 </p>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Bill Time
+                </label>
+                <input
+                  type="time"
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
+                  value={formData.billTime}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      billTime: e.target.value,
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Time of day to run billing (24-hour format)
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   Billing Period Start (Day)

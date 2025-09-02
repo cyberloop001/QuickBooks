@@ -184,6 +184,23 @@ async function addMissingColumns(connection: any) {
   } catch (error) {
     logger.info("Column rename operations completed or not needed");
   }
+
+  // Check and add missing columns to customer_profiles table
+  const customerProfilesColumns = await connection.query(`
+    SELECT column_name FROM information_schema.columns 
+    WHERE table_name = 'customer_profiles' AND table_schema = 'public'
+  `);
+
+  const existingCustomerProfileColumns = customerProfilesColumns.map(
+    (col: any) => col.column_name
+  );
+
+  if (!existingCustomerProfileColumns.includes("billTime")) {
+    await connection.query(
+      `ALTER TABLE customer_profiles ADD COLUMN "billTime" text NOT NULL DEFAULT '02:00'`
+    );
+    logger.info("Added billTime column to customer_profiles");
+  }
 }
 
 async function createMissingTables(connection: any) {

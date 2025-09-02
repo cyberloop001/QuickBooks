@@ -38,6 +38,9 @@ export class CustomerProfile {
   @Column({ type: "integer", default: 1 })
   billDate!: number; // Day of month to bill (1-31)
 
+  @Column({ type: "text", default: "02:00" })
+  billTime!: string; // Time of day to bill (HH:MM format, 24-hour)
+
   @Column({ type: "integer", default: 1 })
   billingPeriodStart!: number; // Day of month billing period starts (1-31)
 

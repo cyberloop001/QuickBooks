@@ -26,6 +26,18 @@ interface DashboardOverview {
     failedJobs: number;
     totalInvoices: number;
     totalRevenue: number;
+    schedule: Array<{
+      customerId: string;
+      customerName: string;
+      billDate: number;
+      billTime: string;
+      billingPeriodStart: number;
+      billingPeriodEnd: number;
+      minimumMinutes: number;
+      overageRatePerMinute: number;
+      nextRun: Date;
+    }>;
+    timezone: string;
   };
   usage: {
     totalMinutes: number;
@@ -70,6 +82,7 @@ interface SystemStatus {
         customerId: string;
         customerName: string;
         billDate: number;
+        billTime: string;
         billingPeriodStart: number;
         billingPeriodEnd: number;
         minimumMinutes: number;
@@ -83,6 +96,16 @@ interface SystemStatus {
     healthy: boolean;
     issues: string[];
   };
+}
+
+interface BillingSchedule {
+  customerId: string;
+  customerName: string;
+  billDate: number;
+  billTime: string;
+  billingPeriodStart: number;
+  billingPeriodEnd: number;
+  queues: string[];
 }
 
 export function Dashboard() {
@@ -378,9 +401,9 @@ export function Dashboard() {
                             <span className="text-sm font-medium text-gray-900">
                               {schedule.customerName}
                             </span>
-                            <span className="text-xs text-gray-500">
-                              Day {schedule.billDate}
-                            </span>
+                            <div className="text-sm text-gray-600">
+                              Day {schedule.billDate} at {schedule.billTime}
+                            </div>
                           </div>
                           <div className="text-xs text-gray-600 mt-1">
                             Period: {schedule.billingPeriodStart} -{" "}
@@ -484,9 +507,9 @@ export function Dashboard() {
                           <span className="text-sm font-medium text-gray-900">
                             {schedule.customerName}
                           </span>
-                          <span className="text-xs text-gray-500">
-                            Day {schedule.billDate}
-                          </span>
+                          <div className="text-sm text-gray-600">
+                            Day {schedule.billDate} at {schedule.billTime}
+                          </div>
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
                           Period: {schedule.billingPeriodStart} -{" "}
