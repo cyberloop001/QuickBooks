@@ -114,6 +114,26 @@ export class QueueBillingScheduler {
   }
 
   /**
+   * Stop billing for a specific customer
+   */
+  public stopBillingForCustomer(customerId: string) {
+    try {
+      if (this.cronJobs.has(customerId)) {
+        const cronJob = this.cronJobs.get(customerId);
+        if (cronJob) {
+          cronJob.stop();
+          this.cronJobs.delete(customerId);
+          logger.info(`Stopped billing job for customer ${customerId}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`Failed to stop billing job for customer ${customerId}`, {
+        error,
+      });
+    }
+  }
+
+  /**
    * Process monthly billing for a specific customer
    */
   private async processMonthlyBilling(customer: CustomerProfile) {
@@ -139,7 +159,7 @@ export class QueueBillingScheduler {
 
       // Calculate billing period for the current month
       const now = moment().tz(config.billing.timezone);
-      const currentMonth = now.month() + 1; // moment months are 0-indexed
+      const currentMonth = now.month(); // previous month
       const currentYear = now.year();
 
       const billingPeriod = customer.getBillingPeriodForMonth(

@@ -265,6 +265,70 @@ export function CustomerProfiles() {
     }
   };
 
+  const handleRescheduleBilling = async (profileId: string) => {
+    try {
+      const response = await fetch(
+        `/api/v1/customer-profiles/${profileId}/reschedule-billing`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to reschedule billing");
+      }
+
+      const data = await response.json();
+      toast.success(`Billing rescheduled for ${data.data.customerName}`);
+
+      // Refresh the profiles list
+      fetchCustomerProfiles();
+    } catch (error) {
+      console.error("Error rescheduling billing:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to reschedule billing"
+      );
+    }
+  };
+
+  const handleRescheduleAllBilling = async () => {
+    try {
+      const response = await fetch(
+        "/api/v1/customer-profiles/reschedule-all-billing",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to reschedule all billing");
+      }
+
+      const data = await response.json();
+      toast.success(
+        `Rescheduled billing for ${data.data.successCount} customer profiles`
+      );
+
+      // Refresh the profiles list
+      fetchCustomerProfiles();
+    } catch (error) {
+      console.error("Error rescheduling all billing:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reschedule all billing"
+      );
+    }
+  };
+
   const getStatusBadge = (profile: CustomerProfile) => {
     if (!profile.isActive) {
       return (
@@ -356,23 +420,31 @@ export function CustomerProfiles() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Customer Profiles
           </h1>
-          <p className="text-gray-600">
-            Manage customer profiles that bridge Genesys queues and QuickBooks
-            customers
+          <p className="mt-1 text-sm text-gray-500">
+            Manage customer profiles and billing configurations
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Customer Profile
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <button
+            onClick={handleRescheduleAllBilling}
+            className="inline-flex items-center justify-center px-4 py-2 border border-yellow-300 shadow-sm text-sm font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Reschedule All Billing
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer Profile
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -871,6 +943,13 @@ export function CustomerProfiles() {
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
+                        <button
+                          onClick={() => handleRescheduleBilling(profile.id)}
+                          className="text-yellow-600 hover:text-yellow-900"
+                          title="Reschedule Billing"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -939,6 +1018,7 @@ export function CustomerProfiles() {
             setShowModal(false);
             setEditingProfile(null);
           }}
+          onRescheduleBilling={handleRescheduleBilling}
         />
       )}
 
@@ -957,12 +1037,14 @@ interface CustomerProfileModalProps {
     profile: Omit<CustomerProfile, "id" | "createdAt" | "updatedAt">
   ) => void;
   onClose: () => void;
+  onRescheduleBilling: (profileId: string) => Promise<void>;
 }
 
 function CustomerProfileModal({
   profile,
   onSave,
   onClose,
+  onRescheduleBilling,
 }: CustomerProfileModalProps) {
   const [formData, setFormData] = useState({
     qboCustomerId: profile?.qboCustomerId || "",
@@ -1499,6 +1581,30 @@ function CustomerProfileModal({
               </div>
             </div>
           </div>
+
+          {/* Reschedule Billing Button - Only show when editing */}
+          {profile && (
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h5 className="text-sm font-medium text-gray-700">
+                    Billing Schedule
+                  </h5>
+                  <p className="text-xs text-gray-500">
+                    Current: Day {profile.billDate} at {profile.billTime}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRescheduleBilling(profile.id)}
+                  className="inline-flex items-center px-3 py-2 border border-yellow-300 shadow-sm text-sm leading-4 font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Reschedule Now
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* QBO Address Fields */}
           <div className="border-t pt-4">

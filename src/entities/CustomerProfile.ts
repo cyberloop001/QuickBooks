@@ -214,6 +214,25 @@ export class CustomerProfile {
     return { start: startDate, end: endDate };
   }
 
+  /**
+   * Check if billing configuration has changed and needs rescheduling
+   */
+  hasBillingConfigChanged(oldProfile: Partial<CustomerProfile>): boolean {
+    return (
+      this.billDate !== oldProfile.billDate ||
+      this.billTime !== oldProfile.billTime ||
+      this.billingPeriodStart !== oldProfile.billingPeriodStart ||
+      this.billingPeriodEnd !== oldProfile.billingPeriodEnd
+    );
+  }
+
+  /**
+   * Get billing configuration summary
+   */
+  getBillingConfigSummary(): string {
+    return `Day ${this.billDate} at ${this.billTime} (Period: ${this.billingPeriodStart}-${this.billingPeriodEnd})`;
+  }
+
   getNextBillingDate(): Date {
     const now = new Date();
     const currentDay = now.getDate();
