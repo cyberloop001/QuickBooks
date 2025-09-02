@@ -98,16 +98,6 @@ interface SystemStatus {
   };
 }
 
-interface BillingSchedule {
-  customerId: string;
-  customerName: string;
-  billDate: number;
-  billTime: string;
-  billingPeriodStart: number;
-  billingPeriodEnd: number;
-  queues: string[];
-}
-
 export function Dashboard() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [billingJobs, setBillingJobs] = useState<BillingJob[]>([]);
