@@ -14,9 +14,20 @@ export interface GenesysCallRecord {
   direction: "inbound" | "outbound";
   purpose?: string;
   outcome?: string;
-  mediaType: "voice" | "chat" | "email";
+  mediaType: "voice" | "chat" | "email" | "callback";
   wrapUpCode?: string;
   recordingId?: string;
+  // New fields for enhanced filtering
+  ani?: string;
+  flowOutType?: string;
+  abandoned?: boolean;
+  isTestCall?: boolean;
+  isAnsweredCall?: boolean;
+  isVoicemail?: boolean;
+  totalHandleTime?: number; // in milliseconds
+  totalACW?: number; // in milliseconds
+  totalActiveCallback?: number; // in milliseconds
+  billableMinutes?: number; // calculated AHT in minutes
 }
 
 export interface GenesysUser {
@@ -573,7 +584,7 @@ export class GenesysService {
   }
 
   /**
-   * Get conversations filtered by queue for queue-based billing
+   * Get conversations filtered by queue for queue-based billing with enhanced filtering
    */
   async getQueueBasedBillingData(
     startDate: Date,
@@ -586,6 +597,12 @@ export class GenesysService {
       totalCalls: number;
       totalDuration: number;
       totalMinutes: number;
+      queueName: string;
+      queueId: string;
+      totalAnsweredCalls: number;
+      totalBillableMinutes: number;
+      totalTestCalls: number;
+      totalFilteredCalls: number;
     };
   }> {
     if (!this.api) {
@@ -611,12 +628,15 @@ export class GenesysService {
       let totalHits = 0;
       let hasMorePages = true;
 
-      logger.info("Starting paginated retrieval of queue-based billing data", {
-        queueName,
-        startDate,
-        endDate,
-        pageSize,
-      });
+      logger.info(
+        "Starting paginated retrieval of queue-based billing data with enhanced filtering",
+        {
+          queueName,
+          startDate,
+          endDate,
+          pageSize,
+        }
+      );
 
       // Loop through pages until we have all conversations
       while (hasMorePages) {
@@ -641,7 +661,7 @@ export class GenesysService {
                   type: "or",
                   predicates: [
                     { dimension: "mediaType", value: "callback" },
-                    { dimension: "mediaType", value: "voice" },
+
                   ],
                 },
               ],
@@ -654,22 +674,170 @@ export class GenesysService {
           queueBillingQuery
         );
 
-        // Handle the actual API response structure
+        // Handle the actual API response structure with enhanced filtering
         const conversations = response.data.conversations || [];
         const pageCallRecords: GenesysCallRecord[] = conversations.map(
           (conversation: any) => {
-            return {
+            // Extract conversation-level data
+            const conversationStart = conversation.conversationStart;
+            const conversationEnd = conversation.conversationEnd;
+            const duration = Math.round(
+              (new Date(conversationEnd).getTime() -
+                new Date(conversationStart).getTime()) /
+                1000
+            );
+
+            // Initialize record with basic data
+            let record: GenesysCallRecord = {
               conversationId: conversation.conversationId,
-              startTime: conversation.conversationStart,
-              endTime: conversation.conversationEnd,
-              duration: Math.round(
-                (new Date(conversation.conversationEnd).getTime() -
-                  new Date(conversation.conversationStart).getTime()) /
-                  1000
-              ),
+              startTime: conversationStart,
+              endTime: conversationEnd,
+              duration: duration,
               queueId,
               queueName,
+              mediaType: "voice", // default
+              direction: "inbound", // default
+              ani: "",
+              flowOutType: "",
+              abandoned: false,
+              isTestCall: false,
+              isAnsweredCall: false,
+              isVoicemail: false,
+              totalHandleTime: 0,
+              totalACW: 0,
+              totalActiveCallback: 0,
+              billableMinutes: 0,
             };
+
+            // Process participants to extract detailed information
+            const participants = conversation.participants || [];
+
+            // Find customer participant for ANI and direction
+            const customerParticipant = participants.find(
+              (p: any) => p.purpose === "customer"
+            );
+            if (
+              customerParticipant &&
+              customerParticipant.sessions &&
+              customerParticipant.sessions.length > 0
+            ) {
+              const session = customerParticipant.sessions[0];
+              record.ani = session.ani || "";
+              record.direction = session.direction || "inbound";
+              record.mediaType = session.mediaType || "voice";
+
+              // Check for flow-out type
+              if (session.flow && session.flow.exitReason) {
+                record.flowOutType = session.flow.exitReason.toLowerCase();
+              }
+            }
+
+            // Find agent participant for handle time and ACW
+            const agentParticipant = participants.find(
+              (p: any) => p.purpose === "agent"
+            );
+            if (
+              agentParticipant &&
+              agentParticipant.sessions &&
+              agentParticipant.sessions.length > 0
+            ) {
+              const session = agentParticipant.sessions[0];
+              const metrics = session.metrics || [];
+
+              // Extract timing metrics
+              const handleMetric = metrics.find(
+                (m: any) => m.name === "tHandle"
+              );
+              const acwMetric = metrics.find((m: any) => m.name === "tAcw");
+              const answeredMetric = metrics.find(
+                (m: any) => m.name === "tAnswered"
+              );
+
+              record.totalHandleTime = handleMetric ? handleMetric.value : 0;
+              record.totalACW = acwMetric ? acwMetric.value : 0;
+
+              // Call is answered if there's an answered metric
+              record.isAnsweredCall = !!answeredMetric;
+            }
+
+            // Find voicemail participant
+            const voicemailParticipant = participants.find(
+              (p: any) => p.purpose === "voicemail"
+            );
+            record.isVoicemail = !!voicemailParticipant;
+
+            // Find callback participant for callback metrics
+            const callbackParticipant = participants.find(
+              (p: any) =>
+                p.sessions &&
+                p.sessions.some((s: any) => s.mediaType === "callback")
+            );
+            if (callbackParticipant && callbackParticipant.sessions) {
+              const callbackSession = callbackParticipant.sessions.find(
+                (s: any) => s.mediaType === "callback"
+              );
+              if (callbackSession && callbackSession.metrics) {
+                const connectedMetric = callbackSession.metrics.find(
+                  (m: any) => m.name === "tConnected"
+                );
+                record.totalActiveCallback = connectedMetric
+                  ? connectedMetric.value
+                  : 0;
+              }
+            }
+
+            // Apply filtering rules
+
+            // 1. Remove test calls - IF([ANI]="tel:+18887703307",1,0)
+            record.isTestCall = record.ani === "tel:+18887703307";
+
+            // 2. Identify answered calls (Inbound Calls)
+            // =IF(AND([Media Type]="voice", [Initial Direction]="Inbound", [Flow-Out Type]="customer") , 0 ,
+            //    IF (AND([Media Type]="voice", [Abandoned]="NO" ,[Test Call]=0, [Initial Direction]="Inbound"),1,0))
+            if (
+              record.mediaType === "voice" &&
+              record.direction === "inbound" &&
+              record.flowOutType === "customer"
+            ) {
+              record.isAnsweredCall = false; // Flow-out type is customer, not answered
+            } else if (
+              record.mediaType === "voice" &&
+              !record.abandoned &&
+              !record.isTestCall &&
+              record.direction === "inbound"
+            ) {
+              record.isAnsweredCall = true;
+            } else {
+              record.isAnsweredCall = false;
+            }
+
+            // 3. Calculate AHT (Average Handle Time) in minutes
+            // =IF(AND([Media Type]="voice", [Answered calls]=1), ([Total Handle Time] - [Total ACW])/60,
+            //    IF(AND([Media Type]="callback", [Voicemail]="Yes") , [Total Active Callback]/60,
+            //       IF([Initial Direction]="outbound", ([Total Handle Time] - [Total ACW])/60, "")))
+
+            if (record.mediaType === "voice" && record.isAnsweredCall) {
+              // Voice answered calls: (Handle Time - ACW) / 60 seconds / 1000 ms
+              record.billableMinutes =
+                ((record.totalHandleTime ?? 0) - (record.totalACW ?? 0)) /
+                60000;
+            } else if (record.mediaType === "callback" && record.isVoicemail) {
+              // Callback voicemails: Total Active Callback / 60 seconds / 1000 ms
+              record.billableMinutes =
+                (record.totalActiveCallback ?? 0) / 60000;
+            } else if (record.direction === "outbound") {
+              // Outbound calls: (Handle Time - ACW) / 60 seconds / 1000 ms
+              record.billableMinutes =
+                ((record.totalHandleTime ?? 0) - (record.totalACW ?? 0)) /
+                60000;
+            } else {
+              record.billableMinutes = 0;
+            }
+
+            // Ensure billable minutes is non-negative
+            record.billableMinutes = Math.max(0, record.billableMinutes);
+
+            return record;
           }
         );
 
@@ -707,18 +875,40 @@ export class GenesysService {
         }
       }
 
+      // Filter out test calls for final calculations
+      const filteredCallRecords = allCallRecords.filter(
+        (record) => !record.isTestCall
+      );
+
+      // Calculate aggregations
       const totalCalls = allCallRecords.length;
-      const totalDuration = allCallRecords.reduce(
+      const totalFilteredCalls = filteredCallRecords.length;
+      const totalTestCalls = totalCalls - totalFilteredCalls;
+      const totalAnsweredCalls = filteredCallRecords.filter(
+        (record) => record.isAnsweredCall
+      ).length;
+
+      // Calculate total billable minutes (sum of all AHT calculations)
+      const totalBillableMinutes = filteredCallRecords.reduce(
+        (sum, record) => sum + (record.billableMinutes || 0),
+        0
+      );
+
+      const totalDuration = filteredCallRecords.reduce(
         (sum, record) => sum + record.duration,
         0
       );
       const totalMinutes = Math.round((totalDuration / 60) * 100) / 100;
 
       logger.info(
-        "Completed paginated retrieval of queue-based billing data from Genesys Cloud Analytics API",
+        "Completed paginated retrieval of queue-based billing data with enhanced filtering",
         {
           totalPages: pageNumber - 1,
           totalRecords: totalCalls,
+          totalFilteredRecords: totalFilteredCalls,
+          totalTestCalls,
+          totalAnsweredCalls,
+          totalBillableMinutes: Math.round(totalBillableMinutes * 100) / 100,
           totalHits,
           startDate,
           endDate,
@@ -727,12 +917,18 @@ export class GenesysService {
       );
 
       return {
-        callRecords: allCallRecords,
+        callRecords: filteredCallRecords, // Return only non-test calls
         aggregations: {
           totalCalls,
+          queueName,
+          queueId,
+          totalFilteredCalls,
+          totalTestCalls,
+          totalAnsweredCalls,
           totalHits,
           totalDuration,
           totalMinutes,
+          totalBillableMinutes: Math.round(totalBillableMinutes * 100) / 100,
         },
       };
     } catch (error) {
