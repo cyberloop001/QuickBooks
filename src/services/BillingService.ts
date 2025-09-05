@@ -195,10 +195,6 @@ export class BillingService {
               queueName // Pass queue name if specified
             );
 
-          fs.writeFileSync(
-            "billingData.json",
-            JSON.stringify(billingData, null, 2)
-          );
           // Convert Genesys data to billing format
           aggregations = billingData.aggregations;
           usageData = billingData.callRecords.map((record) => ({
@@ -1025,7 +1021,7 @@ export class BillingService {
 
       // Get the original job
       const originalJob = await billingJobRepo.findOne({
-        where: { jobId },
+        where: { id: jobId },
       });
 
       if (!originalJob) {
@@ -1064,7 +1060,7 @@ export class BillingService {
 
       // Get the job
       const job = await billingJobRepo.findOne({
-        where: { jobId },
+        where: { id: jobId },
       });
 
       if (!job) {

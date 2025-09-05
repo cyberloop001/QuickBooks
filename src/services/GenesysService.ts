@@ -661,7 +661,7 @@ export class GenesysService {
                   type: "or",
                   predicates: [
                     { dimension: "mediaType", value: "callback" },
-
+                    { dimension: "mediaType", value: "voice" },
                   ],
                 },
               ],
@@ -723,9 +723,6 @@ export class GenesysService {
             ) {
               const session = customerParticipant.sessions[0];
               record.ani = session.ani || "";
-              record.direction = session.direction || "inbound";
-              record.mediaType = session.mediaType || "voice";
-
               // Check for flow-out type
               if (session.flow && session.flow.exitReason) {
                 record.flowOutType = session.flow.exitReason.toLowerCase();
@@ -743,6 +740,18 @@ export class GenesysService {
             ) {
               const session = agentParticipant.sessions[0];
               const metrics = session.metrics || [];
+
+              record.direction = session.direction || "inbound";
+              record.mediaType = session.mediaType || "voice";
+
+              if (session.mediaType === "callback") {
+                const callbackMetric = metrics.find(
+                  (m: any) => m.name === "tActiveCallback"
+                );
+                record.totalActiveCallback = callbackMetric
+                  ? callbackMetric.value
+                  : 0;
+              }
 
               // Extract timing metrics
               const handleMetric = metrics.find(
@@ -765,26 +774,6 @@ export class GenesysService {
               (p: any) => p.purpose === "voicemail"
             );
             record.isVoicemail = !!voicemailParticipant;
-
-            // Find callback participant for callback metrics
-            const callbackParticipant = participants.find(
-              (p: any) =>
-                p.sessions &&
-                p.sessions.some((s: any) => s.mediaType === "callback")
-            );
-            if (callbackParticipant && callbackParticipant.sessions) {
-              const callbackSession = callbackParticipant.sessions.find(
-                (s: any) => s.mediaType === "callback"
-              );
-              if (callbackSession && callbackSession.metrics) {
-                const connectedMetric = callbackSession.metrics.find(
-                  (m: any) => m.name === "tConnected"
-                );
-                record.totalActiveCallback = connectedMetric
-                  ? connectedMetric.value
-                  : 0;
-              }
-            }
 
             // Apply filtering rules
 
