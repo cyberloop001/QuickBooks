@@ -13,7 +13,7 @@ import { getQBOService } from "../routes/qbo";
 import { GenesysService } from "./GenesysService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
-
+import fs from "fs";
 export interface BillingResult {
   success: boolean;
   jobId: string;
@@ -176,10 +176,10 @@ export class BillingService {
     startDate: Date,
     endDate: Date,
     queueName: string
-  ): Promise<any[]> {
+  ): Promise<{ usageData: any[]; aggregations: any }> {
     try {
       let usageData: any[] = [];
-
+      let aggregations: any = {};
       // Try Genesys Cloud first if configured
       if (config.genesys.clientId && config.genesys.clientSecret) {
         try {
@@ -196,13 +196,12 @@ export class BillingService {
             );
 
           // Convert Genesys data to billing format
+          aggregations = billingData.aggregations;
           usageData = billingData.callRecords.map((record) => ({
             call_id: record.conversationId,
             queueId: record.queueId || "unknown",
             queueName: record.queueName || "Unknown Queue",
-            started_at: record.startTime,
-            ended_at: record.endTime,
-            billable_seconds: record.duration,
+            billable_minutes: record.billableMinutes,
           }));
 
           logger.info(
@@ -247,9 +246,7 @@ export class BillingService {
             call_id: usage.callId,
             queueId: "unknown", // Use default since queueId doesn't exist in entity
             queueName: usage.genesysQueueName || "Unknown Queue",
-            started_at: usage.startedAt,
-            ended_at: usage.endedAt,
-            billable_seconds: usage.billableSeconds,
+            billable_minutes: usage.billableMinutes,
           }));
 
           logger.info("Successfully fetched phone usage data", {
@@ -266,7 +263,7 @@ export class BillingService {
         }
       }
 
-      return usageData;
+      return { usageData, aggregations };
     } catch (error) {
       logger.error("Failed to fetch phone usage data", {
         error,
@@ -422,7 +419,10 @@ export class BillingService {
    * Aggregate usage data by queue and calculate billing based on customer configuration
    */
   private async aggregateUsageByQueue(
-    usageData: any[],
+    usageData: {
+      usageData: any[];
+      aggregations: any;
+    },
     startDate: Date,
     endDate: Date,
     specificQueueName?: string,
@@ -434,43 +434,29 @@ export class BillingService {
   ): Promise<Map<string, any>> {
     const aggregatedUsage = new Map<string, any>();
 
-    // Step 1: Aggregate raw usage data by queue
-    for (const usage of usageData) {
-      const queueId = usage.queueId || "unknown";
-      const queueName = usage.queueName || "Unknown Queue";
+    // Use the enhanced aggregations from GenesysService
+    const { aggregations } = usageData;
+    const totalBillableMinutes = aggregations.totalBillableMinutes || 0;
+    const totalCalls = aggregations.totalFilteredCalls || 0;
 
-      // If we're filtering by a specific queue, skip others
-      if (specificQueueName && queueName !== specificQueueName) {
-        continue;
-      }
+    // Create a single queue entry using the aggregations
+    const queueId = aggregations.queueId;
+    const queueName = aggregations.queueName;
 
-      if (!aggregatedUsage.has(queueId)) {
-        // Initialize queue usage data structure
-        aggregatedUsage.set(queueId, {
-          queueId,
-          queueName,
-          totalCalls: 0,
-          totalSeconds: 0,
-          totalMinutes: 0,
-          totalAmount: 0,
-          baseMinutes: 0,
-          overageMinutes: 0,
-          overageAmount: 0,
-          minimumCharge: 0,
-          calls: [],
-        });
-      }
+    aggregatedUsage.set(queueId, {
+      queueId,
+      queueName,
+      totalCalls,
+      totalMinutes: totalBillableMinutes,
+      totalAmount: 0,
+      baseMinutes: 0,
+      overageMinutes: 0,
+      overageAmount: 0,
+      minimumCharge: 0,
+      calls: usageData.usageData, // Keep individual call records for reference
+    });
 
-      const queueUsage = aggregatedUsage.get(queueId);
-
-      // Accumulate usage data
-      queueUsage.totalCalls++;
-      queueUsage.totalSeconds += usage.billable_seconds;
-      queueUsage.totalMinutes += usage.billable_seconds / 60;
-      queueUsage.calls.push(usage);
-    }
-
-    // Step 2: Calculate billing for each queue based on total period usage
+    // Step 2: Calculate billing for the queue based on total period usage
     for (const [queueId, usage] of aggregatedUsage) {
       if (customerBillingConfig && customerBillingConfig.minimumMinutes > 0) {
         // Calculate minimum charge (always applies, even if usage is below minimum)
@@ -1035,7 +1021,7 @@ export class BillingService {
 
       // Get the original job
       const originalJob = await billingJobRepo.findOne({
-        where: { jobId },
+        where: { id: jobId },
       });
 
       if (!originalJob) {
@@ -1074,7 +1060,7 @@ export class BillingService {
 
       // Get the job
       const job = await billingJobRepo.findOne({
-        where: { jobId },
+        where: { id: jobId },
       });
 
       if (!job) {
