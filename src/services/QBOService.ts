@@ -70,6 +70,24 @@ export interface QBOPaymentLine {
     TxnType: string;
   }>;
 }
+
+export interface QBOPaymentMethod {
+  Id: string;
+  Name: string;
+  Type: string;
+  Active: boolean;
+  MetaData: any;
+}
+
+export interface QBOAccount {
+  Id: string;
+  Name: string;
+  AccountType: string;
+  AccountSubType: string;
+  Active: boolean;
+  MetaData: any;
+}
+
 export class QBOService {
   private oauthClient: OAuthClient | null = null;
   private tokens: QBOToken | null = null;
@@ -594,7 +612,6 @@ export class QBOService {
     }
   }
 
-
   /**
    * Create a payment for an invoice in QBO
    */
@@ -603,13 +620,14 @@ export class QBOService {
     customerId: string;
     amount: number;
     privateNote?: string;
+    paymentMethodId?: string;
   }): Promise<QBOPayment> {
     if (!this.api || !this.tokens) {
       throw new Error("Not authenticated with QBO");
     }
 
     try {
-      const payment = {
+      const payment: any = {
         CustomerRef: { value: paymentData.customerId },
         TotalAmt: paymentData.amount,
         PrivateNote: paymentData.privateNote || "Automatic payment for invoice",
@@ -625,6 +643,10 @@ export class QBOService {
           },
         ],
       };
+
+      if (paymentData.paymentMethodId) {
+        payment.PaymentMethodRef = { value: paymentData.paymentMethodId };
+      }
 
       const response = await this.api.post("/payment", payment);
       const createdPayment = response.data;
@@ -669,11 +691,35 @@ export class QBOService {
     privateNote?: string
   ): Promise<QBOPayment> {
     try {
+      // Get payment methods and accounts using Query API
+      const [paymentMethods] = await Promise.all([this.getPaymentMethods()]);
+
+      // Find credit card payment method (prioritize credit card over cash)
+      const creditCardPaymentMethod = paymentMethods.find(
+        (pm) =>
+          pm.Active &&
+          (pm.Name.toLowerCase().includes("credit") ||
+            pm.Name.toLowerCase().includes("card") ||
+            pm.Type === "CREDIT_CARD")
+      );
+
+      // Fallback to first active payment method if no credit card found
+      const defaultPaymentMethod =
+        creditCardPaymentMethod ||
+        paymentMethods.find((pm) => pm.Active) ||
+        paymentMethods[0];
+
+      logger.info("Selected payment method for automatic payment", {
+        paymentMethodId: defaultPaymentMethod?.Id,
+        paymentMethodName: defaultPaymentMethod?.Name,
+        paymentMethodType: defaultPaymentMethod?.Type,
+      });
 
       return await this.createPayment({
         invoiceId,
         customerId,
         amount,
+        paymentMethodId: defaultPaymentMethod?.Id,
         privateNote:
           privateNote || "Automatic payment processed by billing system",
       });
@@ -688,6 +734,52 @@ export class QBOService {
     }
   }
 
+  /**
+   * Get payment methods from QBO using Query API
+   */
+  async getPaymentMethods(): Promise<QBOPaymentMethod[]> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
+    try {
+      // Use QBO Query API to get payment methods
+      const query = "select * from PaymentMethod";
+      const response = await this.api.get(
+        `/query?query=${encodeURIComponent(query)}&minorversion=75`
+      );
+
+      const paymentMethods = response.data.QueryResponse?.PaymentMethod || [];
+
+      logger.info("Retrieved payment methods from QBO", {
+        count: paymentMethods.length,
+        methods: paymentMethods.map((pm) => ({
+          id: pm.Id,
+          name: pm.Name,
+          type: pm.Type,
+          active: pm.Active,
+        })),
+      });
+
+      logQBOServiceAction("get_payment_methods", {
+        success: true,
+        count: paymentMethods.length,
+      });
+
+      return paymentMethods;
+    } catch (error) {
+      logger.error("Failed to get payment methods", { error });
+      logQBOServiceAction("get_payment_methods", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      throw new Error(
+        `Failed to get payment methods: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
   /**
    * Test connection to QBO
    */
