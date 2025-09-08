@@ -13,7 +13,7 @@ import { getQBOService } from "../routes/qbo";
 import { GenesysService } from "./GenesysService";
 import { logger, logBillingJob } from "../utils/logger";
 import { config } from "../config";
-import fs from "fs";
+import { QBOPayment } from "./QBOService";
 export interface BillingResult {
   success: boolean;
   jobId: string;
@@ -36,6 +36,9 @@ export interface QueueBillingResult {
   minimumCharge?: number;
   invoiceCreated: boolean;
   invoiceId?: string;
+  paymentCreated?: boolean;
+  paymentId?: string;
+  paymentError?: string;
   error?: string;
 }
 
@@ -659,15 +662,63 @@ export class BillingService {
       // Create invoice in QBO
       const invoiceResult = await this.qboService.createInvoice(invoicePayload);
 
+      // Automatically create payment for the invoice
+      let paymentResult: QBOPayment | null = null;
+      let paymentError: string | undefined = undefined;
+
+      try {
+        logger.info(
+          `Creating automatic payment for invoice ${invoiceResult.Id}`,
+          {
+            invoiceId: invoiceResult.Id,
+            customerId: billingJob.customerProfile?.qboCustomerId,
+            amount: totalAmount,
+          }
+        );
+
+        paymentResult = await this.qboService.createAutomaticPayment(
+          invoiceResult.Id,
+          billingJob.customerProfile?.qboCustomerId!,
+          totalAmount,
+          `Automatic payment for ${queueName} - ${
+            new Date().toISOString().split("T")[0]
+          }`
+        );
+
+        logger.info(
+          `Successfully created automatic payment for invoice ${invoiceResult.Id}`,
+          {
+            paymentId: paymentResult.Id,
+            invoiceId: invoiceResult.Id,
+            amount: totalAmount,
+          }
+        );
+      } catch (error) {
+        logger.error(
+          `Failed to create automatic payment for invoice ${invoiceResult.Id}`,
+          {
+            error,
+            invoiceId: invoiceResult.Id,
+            customerId: billingJob.customerProfile?.qboCustomerId,
+            amount: totalAmount,
+          }
+        );
+        paymentError =
+          error instanceof Error ? error.message : "Unknown payment error";
+      }
+
       logger.info(`Successfully created invoice for queue: ${queueName}`, {
         queueId,
         queueName,
         invoiceId: invoiceResult.Id,
+        paymentId: paymentResult?.Id,
         totalAmount,
         baseMinutes,
         overageMinutes,
         overageAmount,
         minimumCharge,
+        paymentCreated: !!paymentResult,
+        paymentError,
       });
 
       return {
@@ -682,6 +733,9 @@ export class BillingService {
         minimumCharge,
         invoiceCreated: true,
         invoiceId: invoiceResult.Id,
+        paymentCreated: !!paymentResult,
+        paymentId: paymentResult?.Id,
+        paymentError,
       };
     } catch (error) {
       logger.error(`Failed to create invoice for queue: ${usage.queueName}`, {

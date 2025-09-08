@@ -51,6 +51,25 @@ export interface QBOInvoice {
   MetaData: any;
 }
 
+export interface QBOPayment {
+  Id: string;
+  TotalAmt: number;
+  CustomerRef: { value: string };
+  TxnDate: string;
+  PrivateNote?: string;
+  Line: QBOPaymentLine[];
+  PaymentMethodRef?: { value: string };
+  DepositToAccountRef?: { value: string };
+  MetaData: any;
+}
+
+export interface QBOPaymentLine {
+  Amount: number;
+  LinkedTxn: Array<{
+    TxnId: string;
+    TxnType: string;
+  }>;
+}
 export class QBOService {
   private oauthClient: OAuthClient | null = null;
   private tokens: QBOToken | null = null;
@@ -556,10 +575,10 @@ export class QBOService {
 
       logQBOServiceAction("create_invoice", {
         success: true,
-        invoiceId: invoice.Id,
-        docNumber: invoice.DocNumber,
+        invoiceId: invoice.Invoice.Id,
+        docNumber: invoice.Invoice.DocNumber,
       });
-      return invoice;
+      return invoice.Invoice;
     } catch (error) {
       logger.error("Failed to create invoice", { error, invoiceData });
       logQBOServiceAction("create_invoice", {
@@ -572,6 +591,100 @@ export class QBOService {
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
+    }
+  }
+
+
+  /**
+   * Create a payment for an invoice in QBO
+   */
+  async createPayment(paymentData: {
+    invoiceId: string;
+    customerId: string;
+    amount: number;
+    privateNote?: string;
+  }): Promise<QBOPayment> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
+    try {
+      const payment = {
+        CustomerRef: { value: paymentData.customerId },
+        TotalAmt: paymentData.amount,
+        PrivateNote: paymentData.privateNote || "Automatic payment for invoice",
+        Line: [
+          {
+            Amount: paymentData.amount,
+            LinkedTxn: [
+              {
+                TxnId: paymentData.invoiceId,
+                TxnType: "Invoice",
+              },
+            ],
+          },
+        ],
+      };
+
+      const response = await this.api.post("/payment", payment);
+      const createdPayment = response.data;
+
+      logger.info("Successfully created payment in QBO", {
+        paymentId: createdPayment.Id,
+        invoiceId: paymentData.invoiceId,
+        customerId: paymentData.customerId,
+        amount: paymentData.amount,
+      });
+
+      logQBOServiceAction("create_payment", {
+        success: true,
+        paymentId: createdPayment.Id,
+        invoiceId: paymentData.invoiceId,
+        amount: paymentData.amount,
+      });
+
+      return createdPayment;
+    } catch (error) {
+      logger.error("Failed to create payment", { error, paymentData });
+      logQBOServiceAction("create_payment", {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        paymentData,
+      });
+      throw new Error(
+        `Failed to create payment: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Create payment for invoice automatically using default settings
+   */
+  async createAutomaticPayment(
+    invoiceId: string,
+    customerId: string,
+    amount: number,
+    privateNote?: string
+  ): Promise<QBOPayment> {
+    try {
+
+      return await this.createPayment({
+        invoiceId,
+        customerId,
+        amount,
+        privateNote:
+          privateNote || "Automatic payment processed by billing system",
+      });
+    } catch (error) {
+      logger.error("Failed to create automatic payment", {
+        error,
+        invoiceId,
+        customerId,
+        amount,
+      });
+      throw error;
     }
   }
 
