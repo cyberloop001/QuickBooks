@@ -42,6 +42,8 @@ export const config = {
     itemId: process.env.BILLING_ITEM_ID || "1",
     itemName: process.env.BILLING_ITEM_NAME || "Services",
     taxCode: process.env.BILLING_TAX_CODE || "",
+    autoCharge: process.env.AUTO_CHARGE_INVOICES === 'true',
+    defaultPaymentNote: process.env.DEFAULT_PAYMENT_NOTE || 'Automatic payment processed by billing system',
   },
   logging: {
     level: process.env.LOG_LEVEL || "info",
