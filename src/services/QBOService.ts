@@ -76,7 +76,6 @@ export interface QBOPaymentMethod {
   Name: string;
   Type: string;
   Active: boolean;
-  MetaData: any;
 }
 
 export interface QBOAccount {
@@ -691,35 +690,63 @@ export class QBOService {
     privateNote?: string
   ): Promise<QBOPayment> {
     try {
-      // Get payment methods and accounts using Query API
-      const [paymentMethods] = await Promise.all([this.getPaymentMethods()]);
+      let selectedPaymentMethod: QBOPaymentMethod | null = null;
 
-      // Find credit card payment method (prioritize credit card over cash)
-      const creditCardPaymentMethod = paymentMethods.find(
-        (pm) =>
-          pm.Active &&
-          (pm.Name.toLowerCase().includes("credit") ||
-            pm.Name.toLowerCase().includes("card") ||
-            pm.Type === "CREDIT_CARD")
-      );
+      // First, try to get customer's default payment method
+      try {
+        const customerPaymentMethod = await this.getCustomerPaymentMethod(
+          customerId
+        );
+        if (customerPaymentMethod && customerPaymentMethod.Active) {
+          selectedPaymentMethod = customerPaymentMethod;
+          logger.info("Using customer's default payment method", {
+            customerId,
+            paymentMethodId: customerPaymentMethod.Id,
+            paymentMethodName: customerPaymentMethod.Name,
+            paymentMethodType: customerPaymentMethod.Type,
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          "Failed to get customer's payment method, falling back to system defaults",
+          {
+            error,
+            customerId,
+          }
+        );
+      }
 
-      // Fallback to first active payment method if no credit card found
-      const defaultPaymentMethod =
-        creditCardPaymentMethod ||
-        paymentMethods.find((pm) => pm.Active) ||
-        paymentMethods[0];
+      // If customer doesn't have a default payment method, use system defaults
+      if (!selectedPaymentMethod) {
+        const paymentMethods = await this.getPaymentMethods();
 
-      logger.info("Selected payment method for automatic payment", {
-        paymentMethodId: defaultPaymentMethod?.Id,
-        paymentMethodName: defaultPaymentMethod?.Name,
-        paymentMethodType: defaultPaymentMethod?.Type,
-      });
+        // Find credit card payment method (prioritize credit card over cash)
+        const creditCardPaymentMethod = paymentMethods.find(
+          (pm) =>
+            pm.Active &&
+            (pm.Name.toLowerCase().includes("credit") ||
+              pm.Name.toLowerCase().includes("card") ||
+              pm.Type === "CREDIT_CARD")
+        );
+
+        // Fallback to first active payment method if no credit card found
+        selectedPaymentMethod =
+          creditCardPaymentMethod ||
+          paymentMethods.find((pm) => pm.Active) ||
+          paymentMethods[0];
+
+        logger.info("Using system default payment method", {
+          paymentMethodId: selectedPaymentMethod?.Id,
+          paymentMethodName: selectedPaymentMethod?.Name,
+          paymentMethodType: selectedPaymentMethod?.Type,
+        });
+      }
 
       return await this.createPayment({
         invoiceId,
         customerId,
         amount,
-        paymentMethodId: defaultPaymentMethod?.Id,
+        paymentMethodId: selectedPaymentMethod?.Id,
         privateNote:
           privateNote || "Automatic payment processed by billing system",
       });
@@ -775,6 +802,79 @@ export class QBOService {
       });
       throw new Error(
         `Failed to get payment methods: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Get customer's default payment method from QBO
+   */
+  async getCustomerPaymentMethod(
+    customerId: string
+  ): Promise<QBOPaymentMethod | null> {
+    if (!this.api || !this.tokens) {
+      throw new Error("Not authenticated with QBO");
+    }
+
+    try {
+      // Get customer details including payment method
+      const query = `SELECT * FROM Customer WHERE Id = '${customerId}'`;
+      const response = await this.api.get(
+        `/query?query=${encodeURIComponent(query)}&minorversion=75`
+      );
+
+      const customers = response.data.QueryResponse?.Customer || [];
+      const customer = customers[0];
+
+      if (!customer) {
+        logger.warn("Customer not found", { customerId });
+        return null;
+      }
+
+      // Check if customer has a default payment method
+      if (customer.PaymentMethodRef) {
+        const paymentMethodId = customer.PaymentMethodRef.value;
+
+        // Get the payment method details
+        const paymentMethodQuery = `SELECT * FROM PaymentMethod WHERE Id = '${paymentMethodId}'`;
+        const paymentMethodResponse = await this.api.get(
+          `/query?query=${encodeURIComponent(
+            paymentMethodQuery
+          )}&minorversion=75`
+        );
+
+        const paymentMethods =
+          paymentMethodResponse.data.QueryResponse?.PaymentMethod || [];
+        const paymentMethod = paymentMethods[0];
+
+        if (paymentMethod) {
+          logger.info("Retrieved customer's default payment method", {
+            customerId,
+            paymentMethodId: paymentMethod.Id,
+            paymentMethodName: paymentMethod.Name,
+            paymentMethodType: paymentMethod.Type,
+          });
+
+          return {
+            Id: paymentMethod.Id,
+            Name: paymentMethod.Name,
+            Type: paymentMethod.Type,
+            Active: paymentMethod.Active,
+          };
+        }
+      }
+
+      logger.info("Customer has no default payment method", { customerId });
+      return null;
+    } catch (error) {
+      logger.error("Failed to get customer payment method", {
+        error,
+        customerId,
+      });
+      throw new Error(
+        `Failed to get customer payment method: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
