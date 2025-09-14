@@ -8,6 +8,7 @@ import { CompanyInfo } from "./pages/CompanyInfo";
 import { BillingJobs } from "./pages/BillingJobs";
 import { CustomerProfiles } from "./pages/CustomerProfiles";
 import { Settings } from "./pages/Settings";
+import { RegionTeamManagement } from "./pages/RegionTeamManagement";
 import { Login } from "./pages/Login";
 import { useAuthStore } from "./stores/authStore";
 import { Toaster } from "react-hot-toast";
@@ -30,6 +31,7 @@ function App() {
             <Route path="company-info" element={<CompanyInfo />} />
             <Route path="billing-jobs" element={<BillingJobs />} />
             <Route path="customer-profiles" element={<CustomerProfiles />} />
+            <Route path="region-teams" element={<RegionTeamManagement />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         ) : (

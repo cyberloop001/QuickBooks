@@ -112,6 +112,42 @@ CREATE TABLE IF NOT EXISTS phone_usage (
   CONSTRAINT fk_phone_usage_billing_job FOREIGN KEY ("billingJobId") REFERENCES billing_jobs("id") ON DELETE SET NULL
 );
 
+-- Table: regions
+CREATE TABLE IF NOT EXISTS regions (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "name" text NOT NULL UNIQUE,
+  "description" text,
+  "isActive" boolean NOT NULL DEFAULT true,
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now()
+);
+
+-- Table: teams
+CREATE TABLE IF NOT EXISTS teams (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "name" text NOT NULL,
+  "description" text,
+  "regionId" uuid NOT NULL,
+  "isActive" boolean NOT NULL DEFAULT true,
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_teams_region FOREIGN KEY ("regionId") REFERENCES regions("id") ON DELETE CASCADE
+);
+
+-- Table: queue_assignments
+CREATE TABLE IF NOT EXISTS queue_assignments (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "queueId" text NOT NULL UNIQUE,
+  "queueName" text NOT NULL,
+  "teamId" uuid NOT NULL,
+  "assignedAt" timestamptz NOT NULL DEFAULT now(),
+  "assignedBy" text,
+  "notes" text,
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT fk_queue_assignments_team FOREIGN KEY ("teamId") REFERENCES teams("id") ON DELETE CASCADE
+);
+
 -- Helpful indexes
 CREATE INDEX IF NOT EXISTS idx_phone_usage_customer_profile_started ON phone_usage ("customerProfileId", "startedAt");
 CREATE INDEX IF NOT EXISTS idx_phone_usage_billing_job ON phone_usage ("billingJobId");
@@ -173,3 +209,76 @@ INSERT INTO customer_profiles ("name", "genesysQueueNames", "email", "isActive",
   ('Sample Client 2', ARRAY['Sample_Queue_2'], 'client2@example.com', true, 2.00)
 ON CONFLICT ("name") DO NOTHING;
 */
+
+-- Add indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_regions_name ON regions ("name");
+CREATE INDEX IF NOT EXISTS idx_regions_is_active ON regions ("isActive");
+
+CREATE INDEX IF NOT EXISTS idx_teams_name ON teams ("name");
+CREATE INDEX IF NOT EXISTS idx_teams_region_id ON teams ("regionId");
+CREATE INDEX IF NOT EXISTS idx_teams_is_active ON teams ("isActive");
+
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_queue_id ON queue_assignments ("queueId");
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_queue_name ON queue_assignments ("queueName");
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_team_id ON queue_assignments ("teamId");
+
+-- Add triggers to maintain updatedAt
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_regions_updated_at'
+  ) THEN
+    CREATE TRIGGER set_regions_updated_at
+    BEFORE UPDATE ON regions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_teams_updated_at'
+  ) THEN
+    CREATE TRIGGER set_teams_updated_at
+    BEFORE UPDATE ON teams
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'set_queue_assignments_updated_at'
+  ) THEN
+    CREATE TRIGGER set_queue_assignments_updated_at
+    BEFORE UPDATE ON queue_assignments
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  END IF;
+END $$;
+
+-- Insert sample regions and teams for testing
+INSERT INTO regions ("name", "description") VALUES
+  ('North America', 'North American operations'),
+  ('Europe', 'European operations'),
+  ('Asia Pacific', 'Asia Pacific operations')
+ON CONFLICT ("name") DO NOTHING;
+
+-- Get region IDs for sample teams
+DO $$
+DECLARE
+  na_region_id uuid;
+  eu_region_id uuid;
+  ap_region_id uuid;
+BEGIN
+  SELECT id INTO na_region_id FROM regions WHERE name = 'North America';
+  SELECT id INTO eu_region_id FROM regions WHERE name = 'Europe';
+  SELECT id INTO ap_region_id FROM regions WHERE name = 'Asia Pacific';
+
+  -- Insert sample teams
+  INSERT INTO teams ("name", "description", "regionId") VALUES
+    ('Customer Support - NA', 'North America customer support team', na_region_id),
+    ('Sales - NA', 'North America sales team', na_region_id),
+    ('Customer Support - EU', 'Europe customer support team', eu_region_id),
+    ('Sales - EU', 'Europe sales team', eu_region_id),
+    ('Customer Support - AP', 'Asia Pacific customer support team', ap_region_id),
+    ('Sales - AP', 'Asia Pacific sales team', ap_region_id)
+  ON CONFLICT DO NOTHING;
+END $$;
+

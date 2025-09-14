@@ -16,6 +16,9 @@ import { JobScheduler } from "./jobs/scheduler";
 import { BillingJob } from "./entities/BillingJob";
 import { CustomerProfile } from "./entities/CustomerProfile";
 import { PhoneUsage } from "./entities/PhoneUsage";
+import { Region } from "./entities/Region";
+import { Team } from "./entities/Team";
+import { QueueAssignment } from "./entities/QueueAssignment";
 
 // Load environment variables
 import dotenv from "dotenv";
@@ -79,7 +82,7 @@ async function startServer() {
       password: config.database.password,
       database: config.database.name,
       ssl: config.database.ssl,
-      entities: [BillingJob, CustomerProfile, PhoneUsage],
+      entities: [BillingJob, CustomerProfile, PhoneUsage, Region, Team, QueueAssignment],
       synchronize: true,
       logging: config.server.environment === "development",
     });
