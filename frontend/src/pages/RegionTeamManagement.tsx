@@ -95,9 +95,6 @@ const TreeView = ({
   const buildTree = (): TreeNode[] => {
     return regions.map((region) => {
       const regionTeams = teams.filter((team) => team.regionId === region.id);
-      const regionQueues = queueAssignments.filter((assignment) =>
-        regionTeams.some((team) => team.id === assignment.teamId)
-      );
 
       return {
         id: region.id,
