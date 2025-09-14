@@ -6,6 +6,7 @@ import { CreateTeamModal } from "../components/CreateTeamModal";
 import { AssignQueueModal } from "../components/AssignQueueModal";
 import { EditRegionModal } from "../components/EditRegionModal";
 import { EditTeamModal } from "../components/EditTeamModal";
+import { EditQueueAssignmentModal } from "../components/EditQueueAssignmentModal";
 
 interface Region {
   id: string;
@@ -59,9 +60,11 @@ export function RegionTeamManagement() {
   const [showAssignQueue, setShowAssignQueue] = useState(false);
   const [showEditRegion, setShowEditRegion] = useState(false);
   const [showEditTeam, setShowEditTeam] = useState(false);
+  const [showEditAssignment, setShowEditAssignment] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [selectedQueue, setSelectedQueue] = useState<UnassignedQueue | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<QueueAssignment | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -130,6 +133,11 @@ export function RegionTeamManagement() {
   const handleEditTeam = (team: Team) => {
     setSelectedTeam(team);
     setShowEditTeam(true);
+  };
+
+  const handleEditAssignment = (assignment: QueueAssignment) => {
+    setSelectedAssignment(assignment);
+    setShowEditAssignment(true);
   };
 
   const handleAssignQueue = (queue: UnassignedQueue) => {
@@ -492,10 +500,15 @@ export function RegionTeamManagement() {
                             Assigned {new Date(assignment.assignedAt).toLocaleDateString()}
                             {assignment.assignedBy && ` by ${assignment.assignedBy}`}
                           </p>
+                          {assignment.notes && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Notes: {assignment.notes}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center space-x-2">
                           <button 
-                            onClick={() => toast.success("Edit assignment functionality coming soon")}
+                            onClick={() => handleEditAssignment(assignment)}
                             className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
                           >
                             <Edit className="w-4 h-4 mr-1" />
@@ -584,6 +597,13 @@ export function RegionTeamManagement() {
         onClose={() => setShowEditTeam(false)}
         onSuccess={fetchData}
         team={selectedTeam}
+      />
+
+      <EditQueueAssignmentModal
+        isOpen={showEditAssignment}
+        onClose={() => setShowEditAssignment(false)}
+        onSuccess={fetchData}
+        assignment={selectedAssignment}
       />
     </div>
   );
